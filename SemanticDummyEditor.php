@@ -39,11 +39,14 @@ if ( !defined( 'SMW_VERSION' ) ) {
 	die( "ERROR: Semantic MediaWiki must be installed for Semantic Dummy Editor to run!" );
 }
 
-define( 'SDE_VERSION', '1.0.0' );
+define( 'SDE_VERSION', '1.1.0' );
 
 $wgExtensionCredits[defined( 'SEMANTIC_EXTENSION_TYPE' ) ? 'semantic' : 'other'][] = array(
 		'name' => 'SemanticDummyEditor',
-		'author' => array( '[https://www.mediawiki.org/wiki/User:Rcdeboer Remco C. de Boer]' ),
+		'author' => array(
+			'[https://www.mediawiki.org/wiki/User:Rcdeboer Remco C. de Boer]',
+			'[https://www.mediawiki.org/wiki/User:Fannon Simon Heimler]',
+		),
 		'url' => 'http://www.mediawiki.org/wiki/Extension:SemanticDummyEditor',
 		'description' => 'Monitors changes in semantic dependencies and propagates them through null edits on the dependent pages.',
 		'version' => SDE_VERSION,
@@ -58,28 +61,45 @@ $wgSDERelations = array();
 
 function setupDummyEditor() {
 	global $wgHooks;
-
-	$wgHooks['ArticleSaveComplete'][] = 'sdeSaveHook';
-	$wgHooks['ArticleUndelete'][] = 'sdeUndeleteHook';
+	$wgHooks['SMW::SQLStore::AfterDataUpdateComplete'][] = 'SemanticDummyEditor::onAfterDataUpdateComplete';
 }
-
-function sdeSaveHook( &$article, &$user, $text, $summary, $minoredit, $watchthis, $sectionanchor, &$flags, $revision, &$status, $baseRevId ) {
-	$nullEdit = false;
-	if( $revision == null ) {
-		wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::sdeSaveHook detected null edit for " . $article->getTitle() );
-		$nullEdit = true;
-	}
-	SemanticDummyEditor::articleSavedComplete( $article->getTitle(), $nullEdit );
-
-	return true; // always return true, in order not to stop MW's hook processing!
-}
-function sdeUndeleteHook( &$title, $create ) {
-	SemanticDummyEditor::articleSavedComplete( $title );
-	return true; // always return true, in order not to stop MW's hook processing!
-}
-
 
 class SemanticDummyEditor {
+
+	public static function onAfterDataUpdateComplete( SMWStore $store, SMWSemanticData $newData ) {
+		$subject = $newData->getSubject();
+		$title = Title::makeTitle( $subject->getNamespace(), $subject->getDBkey() );
+
+		wfDebugLog('SemanticDummyEditor', "SemanticDummyEditor::onAfterDataUpdateComplete on " . $title->getPrefixedText());
+
+		$dependencies = SemanticDummyEditor::findDependencies( $title );
+
+		for( $i = 0; $i < count($dependencies); $i++) {
+			$dependency = $dependencies[$i];
+			wfDebugLog( 'SemanticDummyEditor', "Testing dependency $dependency for additional dependencies.") ;
+			$additionalDependencies = SemanticDummyEditor::findDependencies( Title::newFromText( $dependency ) );
+			foreach( $additionalDependencies as $additionalDependency ) {
+				if( !in_array( $additionalDependency, $dependencies ) ) { // prevent infinite loops
+					// add additional dependency to the end of the array, so it too will be inspected for additional dependencies
+					wfDebugLog( 'SemanticDummyEditor', "Additional dependency found: " . $additionalDependency );
+					$dependencies[] = $additionalDependency;
+				} else {
+					wfDebugLog( 'SemanticDummyEditor', "Ignoring duplicate additional dependency: " . $additionalDependency );
+				}
+			}
+		}
+
+		wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::onAfterDataUpdateComplete dependencies: " . implode( '; ', $dependencies ) );
+
+		// refresh the dependent pages, since their dependent values will have changed
+		// refresh has to be done through a dummy edit
+		foreach( $dependencies as $changed ) {
+			$changedTitle = Title::newFromText( $changed );
+			SemanticDummyEditor::dummyEdit( $changedTitle );
+		}
+
+		return true;
+	}
 
 	/**
 	 * Finds all pages dependent on a particular page, by examining the relations from $wgSDERelations.
@@ -89,59 +109,31 @@ class SemanticDummyEditor {
 		global $wgSDERelations;
 
 		// find all dependency relations on this page
-		wfDebugLog('SemanticDummyEditor', "SemanticDummyEditor::findDependencies for $title");
 		$dependencies = array();
 		foreach($wgSDERelations as $relation) {
-			wfDebugLog('SemanticDummyEditor', "SemanticDummyEditor::findDependencies for relation $relation");
+			wfDebugLog('SemanticDummyEditor', "SemanticDummyEditor::findDependencies for page " . $title->getPrefixedText() . " through relation $relation");
 			$dependencies = array_merge( $dependencies, SemanticDummyEditor::dependsOn($title, $relation) );
 		}
+
 		return $dependencies;
 	}
 
-	public static function articleSavedComplete( $title, $nullEdit = false ) {
-		wfDebugLog('SemanticDummyEditor', "SemanticDummyEditor::articleSavedComplete article saved complete: $title ");
-
-		if( !$nullEdit ) { // only actual edits trigger null edits on all dependencies.
-
-			$dependencies = SemanticDummyEditor::findDependencies( $title );
-			for( $i = 0; $i < count($dependencies); $i++) {
-				$dependency = $dependencies[$i];
-				wfDebugLog( 'SemanticDummyEditor', "Testing dependency $dependency for additional dependencies.") ;
-				$additionalDependencies = SemanticDummyEditor::findDependencies( Title::newFromText( $dependency ) );
-				foreach( $additionalDependencies as $additionalDependency ) {
-					if( !in_array( $additionalDependency, $dependencies ) ) { // prevent infinite loops
-						// add additional dependency to the end of the array, so it too will be inspected for additional dependencies
-						wfDebugLog( 'SemanticDummyEditor', "Additional dependency found: " . $additionalDependency );
-						$dependencies[] = $additionalDependency;
-					} else {
-						wfDebugLog( 'SemanticDummyEditor', "Ignoring duplicate additional dependency: " . $additionalDependency );
-					}
-				}
-			}
-
-			wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::articleSavedComplete dependencies: " . implode( ',', $dependencies ) );
-
-			// refresh the dependent pages, since their dependent values will have changed
-			// refresh has to be done through a dummy edit
-			foreach( $dependencies as $changed ) {
-				$changedTitle = Title::newFromText( $changed );
-				SemanticDummyEditor::dummyEdit( $changedTitle, $title );
-			}
-		}
-	}
-
-	public static function dummyEdit( $title, $changedTitle ) {
+	/**
+	 * Save a null revision in the page's history to propagate the update
+	 *
+	 * @param Title $title
+	 */
+	public static function dummyEdit( $title ) {
 		global $wgSDEUseJobQueue;
 		wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dummyEdit performing dummy edit on $title" );
-		$dbw = wfGetDB( DB_MASTER );
-		# Save a null revision in the page's history to propagate the update
+//		$dbw = wfGetDB( DB_MASTER );
 
 		if( $wgSDEUseJobQueue ) {
-			wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dummyEdit adding job to queue" );
+			wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dummyEdit adding job to queue: " . $title->getgetPrefixedText());
 			$job = new DummyEditJob( $title );
 			$job->insert();
 		} else {
-			wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dummyEdit bypassing jobqueue" );
+			wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dummyEdit bypassing jobqueue" . $title->getgetPrefixedText() );
 			$page = WikiPage::newFromID( $title->getArticleId() );
 			if ( $page ) { // prevent NPE when page not found
 				$text = $page->getText( Revision::RAW );
@@ -157,20 +149,23 @@ class SemanticDummyEditor {
 	 */
 	private static function dependsOn( $title, $relation ) {
 
+		$titleText = $title->getPrefixedText();
+
 		$store = smwfGetStore();
 
 		$params = array();
 		$params[ 'limit' ] = 10000; // $smwgQMaxLimit
 		$processedParams = SMWQueryProcessor::getProcessedParams( $params );
-		$query = SMWQueryProcessor::createQuery( "[[$relation::$title]]", $processedParams, SMWQueryProcessor::SPECIAL_PAGE );
+		$query = SMWQueryProcessor::createQuery( "[[$relation::$titleText]]", $processedParams, SMWQueryProcessor::SPECIAL_PAGE );
 		$result = $store->getQueryResult( $query ); // SMWQueryResult
 		$pages = $result->getResults(); // array of SMWWikiPageValues
 
 		$relatedElements = array();
 		foreach($pages as $page) {
-			$relatedElements[] = $page->getTitle()->getText();
-			wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dependsOn " . $page->getTitle()->getText() );
+			$relatedElements[] = $page->getTitle()->getPrefixedText();
 		}
+
+		wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dependsOn: " . implode( '; ', $relatedElements ) );
 
 		return $relatedElements;
 	}
