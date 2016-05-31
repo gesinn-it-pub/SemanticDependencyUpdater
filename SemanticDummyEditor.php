@@ -57,6 +57,7 @@ $wgExtensionFunctions[] = 'setupDummyEditor';
 $wgJobClasses[ 'DummyEditJob' ] = 'DummyEditJob';
 
 $wgSDEUseJobQueue = false;
+$wgSDERecursive = true;
 $wgSDERelations = array();
 
 function setupDummyEditor() {
@@ -67,6 +68,7 @@ function setupDummyEditor() {
 class SemanticDummyEditor {
 
 	public static function onAfterDataUpdateComplete( SMWStore $store, SMWSemanticData $newData ) {
+		global $wgSDERecursive;
 		$subject = $newData->getSubject();
 		$title = Title::makeTitle( $subject->getNamespace(), $subject->getDBkey() );
 
@@ -74,17 +76,20 @@ class SemanticDummyEditor {
 
 		$dependencies = SemanticDummyEditor::findDependencies( $title );
 
-		for( $i = 0; $i < count($dependencies); $i++) {
-			$dependency = $dependencies[$i];
-			wfDebugLog( 'SemanticDummyEditor', "Testing dependency $dependency for additional dependencies.") ;
-			$additionalDependencies = SemanticDummyEditor::findDependencies( Title::newFromText( $dependency ) );
-			foreach( $additionalDependencies as $additionalDependency ) {
-				if( !in_array( $additionalDependency, $dependencies ) ) { // prevent infinite loops
-					// add additional dependency to the end of the array, so it too will be inspected for additional dependencies
-					wfDebugLog( 'SemanticDummyEditor', "Additional dependency found: " . $additionalDependency );
-					$dependencies[] = $additionalDependency;
-				} else {
-					wfDebugLog( 'SemanticDummyEditor', "Ignoring duplicate additional dependency: " . $additionalDependency );
+		if ($wgSDERecursive) {
+			for( $i = 0; $i < count($dependencies); $i++) {
+				$dependency = $dependencies[$i];
+
+				wfDebugLog( 'SemanticDummyEditor', "Testing dependency $dependency for additional dependencies.") ;
+				$additionalDependencies = SemanticDummyEditor::findDependencies( Title::newFromText( $dependency ) );
+				foreach( $additionalDependencies as $additionalDependency ) {
+					if( !in_array( $additionalDependency, $dependencies ) ) { // prevent infinite loops
+						// add additional dependency to the end of the array, so it too will be inspected for additional dependencies
+						wfDebugLog( 'SemanticDummyEditor', "Additional dependency found: " . $additionalDependency );
+						$dependencies[] = $additionalDependency;
+					} else {
+						wfDebugLog( 'SemanticDummyEditor', "Ignoring duplicate additional dependency: " . $additionalDependency );
+					}
 				}
 			}
 		}
@@ -125,15 +130,13 @@ class SemanticDummyEditor {
 	 */
 	public static function dummyEdit( $title ) {
 		global $wgSDEUseJobQueue;
-		wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dummyEdit performing dummy edit on $title" );
-//		$dbw = wfGetDB( DB_MASTER );
 
 		if( $wgSDEUseJobQueue ) {
-			wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dummyEdit adding job to queue: " . $title->getgetPrefixedText());
+			wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dummyEdit adding job to queue: $title");
 			$job = new DummyEditJob( $title );
 			$job->insert();
 		} else {
-			wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dummyEdit bypassing jobqueue" . $title->getgetPrefixedText() );
+			wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dummyEdit bypassing jobqueue: $title");
 			$page = WikiPage::newFromID( $title->getArticleId() );
 			if ( $page ) { // prevent NPE when page not found
 				$text = $page->getText( Revision::RAW );
