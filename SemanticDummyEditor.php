@@ -57,7 +57,7 @@ $wgExtensionFunctions[] = 'setupDummyEditor';
 $wgJobClasses[ 'DummyEditJob' ] = 'DummyEditJob';
 
 $wgSDEUseJobQueue = false;
-$wgSDERecursive = true;
+$wgSDERecursive = false;
 $wgSDERelations = array();
 
 function setupDummyEditor() {
@@ -78,22 +78,10 @@ class SemanticDummyEditor {
 		$properties = $newData->getProperties();
 		$diffTable = $compositePropertyTableDiffIterator->getOrderedDiffByTable();
 
-		wfDebugLog('SemanticDummyEditor', "SDE::onAfterDataUpdateComplete: " . $title);
+		wfDebugLog('SemanticDummyEditor', "SDE::onAfterDataUpdateComplete: ---> " . $title);
 
 
-		// FIRST CHECK: Have there been actual changes in the data? (Ignore internal SMW data!)
-		// Only count property changes in "smw_di_wikipage" and not SMWs internal properties "smw_fpt_mdat"
-		// TODO: Introduce an explicit list of Semantic Properties to watch ?
-
-		if (!isset($diffTable['smw_di_wikipage'])) {
-			wfDebugLog('SemanticDummyEditor', "SDE::onAfterDataUpdateComplete: No semantic data changes detected");
-			return true;
-		} else {
-			wfDebugLog('SemanticDummyEditor', "SDE::onAfterDataUpdateComplete: Data changes detected: " . count($diffTable['smw_di_wikipage']));
-		}
-
-
-        // SECOND CHECK: Does the page data contain at least one of the $wgSDERelations ?
+        // FIRST CHECK: Does the page data contain at least one of the $wgSDERelations ?
 
         foreach($wgSDERelations as $relation) {
             $relation  = str_replace(' ', '_', $relation);
@@ -108,7 +96,20 @@ class SemanticDummyEditor {
         } else {
             wfDebugLog('SemanticDummyEditor', "SDE::onAfterDataUpdateComplete: Found SDE relations: " . join(", ", $hasSDERelations));
         }
-        
+
+
+		// SECOND CHECK: Have there been actual changes in the data? (Ignore internal SMW data!)
+		// Only count property changes in "smw_di_wikipage" and not SMWs internal properties "smw_fpt_mdat"
+		// TODO: Introduce an explicit list of Semantic Properties to watch ?
+
+		if (!isset($diffTable['smw_di_wikipage'])) {
+			wfDebugLog('SemanticDummyEditor', "SDE::onAfterDataUpdateComplete: No semantic data changes detected");
+			return true;
+		} else {
+			wfDebugLog('SemanticDummyEditor', "SDE::onAfterDataUpdateComplete: Data changes detected: " . count($diffTable['smw_di_wikipage']));
+		}
+
+
         $dependencies = SemanticDummyEditor::findDependencies( $title, $hasSDERelations );
 
 		if ($wgSDERecursive) {
