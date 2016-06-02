@@ -67,14 +67,49 @@ function setupDummyEditor() {
 
 class SemanticDummyEditor {
 
-	public static function onAfterDataUpdateComplete( SMWStore $store, SMWSemanticData $newData ) {
+	public static function onAfterDataUpdateComplete( SMWStore $store, SMWSemanticData $newData, $compositePropertyTableDiffIterator ) {
+
+		global $wgSDERelations;
 		global $wgSDERecursive;
+
 		$subject = $newData->getSubject();
 		$title = Title::makeTitle( $subject->getNamespace(), $subject->getDBkey() );
+		$hasSDERelations = array();
+		$properties = $newData->getProperties();
+		$diffTable = $compositePropertyTableDiffIterator->getOrderedDiffByTable();
 
-		wfDebugLog('SemanticDummyEditor', "SemanticDummyEditor::onAfterDataUpdateComplete on " . $title->getPrefixedText());
+		wfDebugLog('SemanticDummyEditor', "SDE::onAfterDataUpdateComplete: " . $title);
 
-		$dependencies = SemanticDummyEditor::findDependencies( $title );
+
+		// FIRST CHECK: Have there been actual changes in the data? (Ignore internal SMW data!)
+		// Only count property changes in "smw_di_wikipage" and not SMWs internal properties "smw_fpt_mdat"
+		// TODO: Introduce an explicit list of Semantic Properties to watch ?
+
+		if (!isset($diffTable['smw_di_wikipage'])) {
+			wfDebugLog('SemanticDummyEditor', "SDE::onAfterDataUpdateComplete: No semantic data changes detected");
+			return true;
+		} else {
+			wfDebugLog('SemanticDummyEditor', "SDE::onAfterDataUpdateComplete: Data changes detected: " . count($diffTable['smw_di_wikipage']));
+		}
+
+
+        // SECOND CHECK: Does the page data contain at least one of the $wgSDERelations ?
+
+        foreach($wgSDERelations as $relation) {
+            $relation  = str_replace(' ', '_', $relation);
+            if (isset($properties[$relation])) {
+                $hasSDERelations[] = $relation;
+            }
+        }
+
+        if (count($hasSDERelations) === 0) {
+            wfDebugLog('SemanticDummyEditor', "SDE::onAfterDataUpdateComplete: No SDE relations found");
+            return true;
+        } else {
+            wfDebugLog('SemanticDummyEditor', "SDE::onAfterDataUpdateComplete: Found SDE relations: " . join(", ", $hasSDERelations));
+        }
+        
+        $dependencies = SemanticDummyEditor::findDependencies( $title, $hasSDERelations );
 
 		if ($wgSDERecursive) {
 			for( $i = 0; $i < count($dependencies); $i++) {
@@ -94,7 +129,7 @@ class SemanticDummyEditor {
 			}
 		}
 
-		wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::onAfterDataUpdateComplete dependencies: " . implode( '; ', $dependencies ) );
+		wfDebugLog( 'SemanticDummyEditor', "SDE::onAfterDataUpdateComplete dependencies: " . implode( '; ', $dependencies ) );
 
 		// refresh the dependent pages, since their dependent values will have changed
 		// refresh has to be done through a dummy edit
@@ -103,20 +138,28 @@ class SemanticDummyEditor {
 			SemanticDummyEditor::dummyEdit( $changedTitle );
 		}
 
+
 		return true;
 	}
 
 	/**
 	 * Finds all pages dependent on a particular page, by examining the relations from $wgSDERelations.
-	 * @param unknown_type $title the title of the page.
+	 * @param $title the title of the page.
+	 * @param $hasSDERelations array of detected SDE relations
+     *
+     * @return array
 	 */
-	private static function findDependencies( $title) {
-		global $wgSDERelations;
+	private static function findDependencies( $title, $hasSDERelations) {
+
+		if (!$hasSDERelations) {
+			global $wgSDERelations;
+			$hasSDERelations = $wgSDERelations;
+		}
 
 		// find all dependency relations on this page
 		$dependencies = array();
-		foreach($wgSDERelations as $relation) {
-			wfDebugLog('SemanticDummyEditor', "SemanticDummyEditor::findDependencies for page " . $title->getPrefixedText() . " through relation $relation");
+		foreach($hasSDERelations as $relation) {
+			wfDebugLog('SemanticDummyEditor', "SDE::findDependencies for page " . $title->getPrefixedText() . " through relation $relation");
 			$dependencies = array_merge( $dependencies, SemanticDummyEditor::dependsOn($title, $relation) );
 		}
 
@@ -132,11 +175,11 @@ class SemanticDummyEditor {
 		global $wgSDEUseJobQueue;
 
 		if( $wgSDEUseJobQueue ) {
-			wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dummyEdit adding job to queue: $title");
+			wfDebugLog( 'SemanticDummyEditor', "SDE::dummyEdit adding job to queue: $title");
 			$job = new DummyEditJob( $title );
 			$job->insert();
 		} else {
-			wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dummyEdit bypassing jobqueue: $title");
+			wfDebugLog( 'SemanticDummyEditor', "SDE::dummyEdit bypassing jobqueue: $title");
 			$page = WikiPage::newFromID( $title->getArticleId() );
 			if ( $page ) { // prevent NPE when page not found
 				$text = $page->getText( Revision::RAW );
@@ -168,7 +211,7 @@ class SemanticDummyEditor {
 			$relatedElements[] = $page->getTitle()->getPrefixedText();
 		}
 
-		wfDebugLog( 'SemanticDummyEditor', "SemanticDummyEditor::dependsOn: " . implode( '; ', $relatedElements ) );
+		wfDebugLog( 'SemanticDummyEditor', "SDE::dependsOn: " . implode( '; ', $relatedElements ) );
 
 		return $relatedElements;
 	}
