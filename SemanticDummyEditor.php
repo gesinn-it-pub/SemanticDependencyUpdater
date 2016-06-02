@@ -84,8 +84,12 @@ class SemanticDummyEditor {
         // FIRST CHECK: Does the page data contain at least one of the $wgSDERelations ?
 
         foreach($wgSDERelations as $relation) {
-            $relation  = str_replace(' ', '_', $relation);
-            if (isset($properties[$relation])) {
+
+            $relationSearchString = (string) $relation;
+
+            $relationSearchString = str_replace(' ', '_', $relationSearchString);
+            $relationSearchString = ltrim($relationSearchString, '-');
+            if (isset($properties[$relationSearchString])) {
                 $hasSDERelations[] = $relation;
             }
         }
