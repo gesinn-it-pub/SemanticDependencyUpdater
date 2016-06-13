@@ -102,6 +102,8 @@ class SemanticDependencyUpdater {
 		$queryString = str_replace('AND', ']] [[', $queryString);
 		$queryString = str_replace('OR', ']] OR [[', $queryString);
 
+		// If SF is installed, get the separator character and change it into ||
+		// Otherwise SDU won't work with multi-value properties
 		if (isset($sfgListSeparator)) {
 			$queryString = rtrim($queryString, $sfgListSeparator);
 			$queryString = str_replace($sfgListSeparator, ' || ', $queryString);
