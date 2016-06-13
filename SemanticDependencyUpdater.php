@@ -20,7 +20,7 @@ if ( !defined( 'SMW_VERSION' ) ) {
 	die( "ERROR: Semantic MediaWiki must be installed for Semantic Dummy Editor to run!" );
 }
 
-define( 'SDU_VERSION', '1.0.2' );
+define( 'SDU_VERSION', '1.1.0' );
 
 $wgExtensionCredits[defined( 'SEMANTIC_EXTENSION_TYPE' ) ? 'semantic' : 'other'][] = array(
 		'name' => 'SemanticDependencyUpdater',
@@ -97,8 +97,15 @@ class SemanticDependencyUpdater {
 	 */
 	private static function updatePagesMatchingQuery( $queryString ) {
 
+		global $sfgListSeparator;
+
 		$queryString = str_replace('AND', ']] [[', $queryString);
 		$queryString = str_replace('OR', ']] OR [[', $queryString);
+
+		if (isset($sfgListSeparator)) {
+			$queryString = rtrim($queryString, $sfgListSeparator);
+			$queryString = str_replace($sfgListSeparator, ' || ', $queryString);
+		}
 
 		wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [[$queryString]]");
 
