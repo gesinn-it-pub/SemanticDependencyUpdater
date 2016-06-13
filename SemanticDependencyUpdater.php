@@ -20,13 +20,7 @@ if ( !defined( 'SMW_VERSION' ) ) {
 	die( "ERROR: Semantic MediaWiki must be installed for Semantic Dummy Editor to run!" );
 }
 
-// Don't run in CLI mode (maintainence scripts)
-if (php_sapi_name() == "cli") {
-	return false;
-	wfDebugLog('SemanticDependencyUpdater', "[SDU] Skipping in CLI Mode");
-}
-
-define( 'SDU_VERSION', '1.0.0' );
+define( 'SDU_VERSION', '1.0.2' );
 
 $wgExtensionCredits[defined( 'SEMANTIC_EXTENSION_TYPE' ) ? 'semantic' : 'other'][] = array(
 		'name' => 'SemanticDependencyUpdater',
