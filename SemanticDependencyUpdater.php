@@ -50,16 +50,21 @@ class SemanticDependencyUpdater {
 	public static function onAfterDataUpdateComplete( SMWStore $store, SMWSemanticData $newData, $compositePropertyTableDiffIterator ) {
 
 		global $wgSDUProperty;
+		global $wgSDUTraversed;
+
+		if (!isset($wgSDUTraversed)) {
+			$wgSDUTraversed = array();
+		}
 
 		$wgSDUProperty = str_replace(' ', '_', $wgSDUProperty);
 		$subject = $newData->getSubject();
 		$title = $subject->getTitle();
+		$id = $title->getPrefixedDBKey();
 
 		wfDebugLog('SemanticDependencyUpdater', "[SDU] --> " . $title);
 
 
 		// FIRST CHECK: Does the page data contain a $wgSUTPropertyName semantic property ?
-
 		$properties = $newData->getProperties();
 		$diffTable = $compositePropertyTableDiffIterator->getOrderedDiffByTable();
 
@@ -68,15 +73,30 @@ class SemanticDependencyUpdater {
 			return true;
 		}
 
+
 		// SECOND CHECK: Have there been actual changes in the data? (Ignore internal SMW data!)
 		// TODO: Introduce an explicit list of Semantic Properties to watch ?
-
 		unset($diffTable['smw_fpt_mdat']); // Ignore SMW's internal properties "smw_fpt_mdat"
 
 		if (count($diffTable) > 0) {
+			// wfDebugLog('SemanticDependencyUpdater', "[SDU] diffTable: " . print_r($diffTable, true));
 			wfDebugLog('SemanticDependencyUpdater', "[SDU] -----> Data changes detected");
 		} else {
 			wfDebugLog('SemanticDependencyUpdater', "[SDU] <-- No semantic data changes detected");
+			return true;
+		}
+
+
+		// THIRD CHECK: Has this page been already traversed more than twice?
+		// This should only be the case when SMW errors occur.
+		// In that case, the diffTable contains everything and SDU can't know if changes happend
+		if (array_key_exists($id, $wgSDUTraversed)) {
+		    $wgSDUTraversed[$id] = $wgSDUTraversed[$id] + 1;
+		} else {
+			$wgSDUTraversed[$id] = 1;
+		}
+		if ($wgSDUTraversed[$id] > 2) {
+			wfDebugLog('SemanticDependencyUpdater', "[SDU] <-- Already traversed");
 			return true;
 		}
 
