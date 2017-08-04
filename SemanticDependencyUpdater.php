@@ -20,12 +20,13 @@ if ( !defined( 'SMW_VERSION' ) ) {
 	die( "ERROR: Semantic MediaWiki must be installed for Semantic Dummy Editor to run!" );
 }
 
-define( 'SDU_VERSION', '1.1.0' );
+define( 'SDU_VERSION', '1.3.0' );
 
 $wgExtensionCredits[defined( 'SEMANTIC_EXTENSION_TYPE' ) ? 'semantic' : 'other'][] = array(
 		'name' => 'SemanticDependencyUpdater',
 		'author' => array(
 			'[https://www.mediawiki.org/wiki/User:Fannon Simon Heimler]',
+			'[https://www.mediawiki.org/wiki/User:Planetenxin|Alexander Gesinn]',
 			'[https://www.mediawiki.org/wiki/User:Rcdeboer Remco C. de Boer]',
 		),
 		'url' => 'http://www.mediawiki.org/wiki/Extension:SemanticDependencyUpdater',
@@ -169,6 +170,7 @@ class SemanticDependencyUpdater {
 			if ( $page ) { // prevent NPE when page not found
 				$text = $page->getText( Revision::RAW );
 				$page->doEdit( $text, "[SemanticDependencyUpdater] Null edit." ); // since this is a null edit, the edit summary will be ignored.
+				$page->doPurge(); // required since SMW 2.5.1
 			}
 		}
 	}
@@ -198,6 +200,7 @@ class DummyEditJob extends Job {
 		if ( $page ) { // prevent NPE when page not found
 			$text = $page->getText( Revision::RAW );
 			$page->doEdit($text, "[SemanticDependencyUpdater] Null edit."); // since this is a null edit, the edit summary will be ignored.
+			$page->doPurge(); // required since SMW 2.5.1
 		}
 
 		wfProfileOut( __METHOD__ );
