@@ -26,7 +26,7 @@ $wgExtensionCredits[defined( 'SEMANTIC_EXTENSION_TYPE' ) ? 'semantic' : 'other']
 		'name' => 'SemanticDependencyUpdater',
 		'author' => array(
 			'[https://www.mediawiki.org/wiki/User:Fannon Simon Heimler]',
-			'[https://www.mediawiki.org/wiki/User:Planetenxin|Alexander Gesinn]',
+			'[https://www.mediawiki.org/wiki/User:Planetenxin Alexander Gesinn]',
 			'[https://www.mediawiki.org/wiki/User:Rcdeboer Remco C. de Boer]',
 		),
 		'url' => 'http://www.mediawiki.org/wiki/Extension:SemanticDependencyUpdater',
