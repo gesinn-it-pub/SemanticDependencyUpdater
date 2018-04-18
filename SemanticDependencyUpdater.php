@@ -172,7 +172,7 @@ class SemanticDependencyUpdater {
 			if ( $page ) { // prevent NPE when page not found
 				$content = $page->getContent( Revision::RAW );
 				$text = ContentHandler::getContentText( $content );
-				$page->doEdit( $text,
+				$page->doEditContent( ContentHandler::makeContent( $text, $page->getTitle() ),
 					"[SemanticDependencyUpdater] Null edit." ); // since this is a null edit, the edit summary will be ignored.
 				$page->doPurge(); // required since SMW 2.5.1
 			}
@@ -204,7 +204,7 @@ class DummyEditJob extends Job {
 		if ( $page ) { // prevent NPE when page not found
 			$content = $page->getContent( Revision::RAW );
 			$text = ContentHandler::getContentText( $content );
-			$page->doEdit( $text,
+			$page->doEditContent( ContentHandler::makeContent( $text, $page->getTitle() ),
 				"[SemanticDependencyUpdater] Null edit." ); // since this is a null edit, the edit summary will be ignored.
 			$page->doPurge(); // required since SMW 2.5.1
 		}
