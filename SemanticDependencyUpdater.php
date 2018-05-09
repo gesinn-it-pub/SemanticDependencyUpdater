@@ -20,7 +20,7 @@ if ( !defined( 'SMW_VERSION' ) ) {
 	die( "ERROR: Semantic MediaWiki must be installed for Semantic Dummy Editor to run!" );
 }
 
-define( 'SDU_VERSION', '1.3.2-beta' );
+define( 'SDU_VERSION', '1.3.2' );
 
 $wgExtensionCredits[defined( 'SEMANTIC_EXTENSION_TYPE' ) ? 'semantic' : 'other'][] = [
 	'name'        => 'SemanticDependencyUpdater',
