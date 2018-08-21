@@ -1,0 +1,35 @@
+{
+  "name": "SemanticDependencyUpdater",
+  "version": "1.4.0",
+  "author": [
+    "Simon Heimler (gesinn.it GmbH & Co. KG)",
+    "Alexander Gesinn (gesinn.it GmbH & Co. KG)",
+    "Sebastian Schmid (gesinn.it GmbH & Co. KG)",
+    "Rcdeboer Remco C. de Boer"
+  ],
+  "url": "https://www.mediawiki.org/wiki/Extension:SemanticDependencyUpdater",
+  "description": "Monitors semantic data changes and updates dependend pages",
+  "license-name": "MIT",
+  "type": "semantic",
+  "requires": {
+    "MediaWiki": ">= 1.25",
+    "extensions": {
+      "SemanticMediaWiki": ">= 2.3.0"
+    }
+  },
+  "AutoloadClasses": {
+    "SDU\\Hooks": "SemanticDependencyUpdater.hooks.php",
+    "SDU\\DummyEditJob": "includes/DummyEditJob.php"
+  },
+  "JobClasses": {
+    "SDU\\DummyEditJob": "DummyEditJob"
+  },
+  "ExtensionFunctions": [
+    "SDU\\Hooks::setup"
+  ],
+  "config": {
+    "SDUProperty": "Semantic Dependency",
+    "SDUUseJobQueue": false
+  },
+  "manifest_version": 1
+}
