@@ -1,6 +1,6 @@
 {
   "name": "SemanticDependencyUpdater",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "author": [
     "Simon Heimler (gesinn.it GmbH & Co. KG)",
     "Alexander Gesinn (gesinn.it GmbH & Co. KG)",
@@ -8,7 +8,7 @@
     "Rcdeboer Remco C. de Boer"
   ],
   "url": "https://www.mediawiki.org/wiki/Extension:SemanticDependencyUpdater",
-  "description": "Monitors semantic data changes and updates dependend pages",
+  "description": "Monitors semantic data changes and updates dependent pages",
   "license-name": "MIT",
   "type": "semantic",
   "requires": {
