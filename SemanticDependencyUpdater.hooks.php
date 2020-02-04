@@ -1,10 +1,4 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: Sebastian
- * Date: 21.08.2018
- * Time: 08:56
- */
 
 namespace SDU;
 
@@ -90,12 +84,15 @@ class Hooks {
 
 		$dataItem = $newData->getPropertyValues( $properties[$wgSDUProperty] );
 
-		foreach ( $dataItem as $valueItem ) {
-			Hooks::updatePagesMatchingQuery( $valueItem->getString() );
+		if ( $dataItem != null ) {
+			foreach ( $dataItem as $valueItem ) {
+				Hooks::updatePagesMatchingQuery( $valueItem->getString() );
+			}
 		}
 
 		return true;
 	}
+
 	/**
 	 * @param string $queryString Query string, excluding [[ and ]] brackets
 	 */
