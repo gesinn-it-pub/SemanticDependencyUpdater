@@ -1,6 +1,6 @@
 {
   "name": "SemanticDependencyUpdater",
-  "version": "1.4.1",
+  "version": "2.0.0-alpha",
   "author": [
     "Simon Heimler (gesinn.it GmbH & Co. KG)",
     "Alexander Gesinn (gesinn.it GmbH & Co. KG)",
@@ -12,21 +12,24 @@
   "license-name": "MIT",
   "type": "semantic",
   "requires": {
-    "MediaWiki": ">= 1.25",
+    "MediaWiki": ">= 1.31",
     "extensions": {
-      "SemanticMediaWiki": ">= 2.3.0"
+      "SemanticMediaWiki": ">= 3.1.0"
     }
   },
   "AutoloadClasses": {
     "SDU\\Hooks": "SemanticDependencyUpdater.hooks.php",
     "SDU\\DummyEditJob": "includes/DummyEditJob.php"
   },
+  "Hooks": {
+    "SMW::SQLStore::AfterDataUpdateComplete": [
+      "SDU\\Hooks::onAfterDataUpdateComplete"
+    ]
+  },
   "JobClasses": {
     "SDU\\DummyEditJob": "DummyEditJob"
   },
-  "ExtensionFunctions": [
-    "SDU\\Hooks::setup"
-  ],
+  "callback": "SDU\\Hooks::setup",
   "config": {
     "SDUProperty": "Semantic Dependency",
     "SDUUseJobQueue": false

@@ -13,7 +13,6 @@ use ContentHandler;
 class Hooks {
 
 	public static function setup() {
-
 		if ( !defined( 'MEDIAWIKI' ) ) {
 			die();
 		}
@@ -21,10 +20,6 @@ class Hooks {
 		if ( !defined( 'SMW_VERSION' ) ) {
 			die( "ERROR: Semantic MediaWiki must be installed for Semantic Dependency Updater to run!" );
 		}
-
-		global $wgHooks;
-		// registered Hook this way to make sure SMW is loaded
-		$wgHooks['SMW::SQLStore::AfterDataUpdateComplete'][] = 'SDU\Hooks::onAfterDataUpdateComplete';
 	}
 
 	public static function onAfterDataUpdateComplete( SMWStore $store, SMWSemanticData $newData,
@@ -44,14 +39,15 @@ class Hooks {
 		wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --> " . $title );
 
 
-		// FIRST CHECK: Does the page data contain a $wgSUTPropertyName semantic property ?
+		// FIRST CHECK: Does the page data contain a $wgSDUProperty semantic property ?
 		$properties = $newData->getProperties();
-		$diffTable = $compositePropertyTableDiffIterator->getOrderedDiffByTable();
-
 		if ( !isset( $properties[$wgSDUProperty] ) ) {
 			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] <-- No SDU property found" );
 			return true;
 		}
+
+		$diffTable = $compositePropertyTableDiffIterator->getOrderedDiffByTable();
+
 
 		// SECOND CHECK: Have there been actual changes in the data? (Ignore internal SMW data!)
 		// TODO: Introduce an explicit list of Semantic Properties to watch ?
@@ -68,7 +64,7 @@ class Hooks {
 
 		// THIRD CHECK: Has this page been already traversed more than twice?
 		// This should only be the case when SMW errors occur.
-		// In that case, the diffTable contains everything and SDU can't know if changes happend
+		// In that case, the diffTable contains everything and SDU can't know if changes happened
 		if ( array_key_exists( $id, $wgSDUTraversed ) ) {
 			$wgSDUTraversed[$id] = $wgSDUTraversed[$id] + 1;
 		} else {
@@ -82,6 +78,8 @@ class Hooks {
 
 		// QUERY AND UPDATE DEPENDENCIES
 
+		// SMW\SemanticData $newData
+		// SMWDataItem[] $dataItem
 		$dataItem = $newData->getPropertyValues( $properties[$wgSDUProperty] );
 
 		if ( $dataItem != null ) {
