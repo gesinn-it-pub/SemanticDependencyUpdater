@@ -18,24 +18,22 @@ class DummyEditJob extends Job {
 	 * @return boolean success
 	 */
 	function run() {
-		wfProfileIn( __METHOD__ );
-
-		if ( is_null( $this->title ) ) {
-			$this->error = "DummyEditJob: Invalid title";
-			wfProfileOut( __METHOD__ );
-			return false;
-		}
-
 		$page = WikiPage::newFromID( $this->title->getArticleId() );
 		if ( $page ) { // prevent NPE when page not found
 			$content = $page->getContent( Revision::RAW );
-			$text = ContentHandler::getContentText( $content );
-			$page->doEditContent( ContentHandler::makeContent( $text, $page->getTitle() ),
-				"[SemanticDependencyUpdater] Null edit." ); // since this is a null edit, the edit summary will be ignored.
-			$page->doPurge(); // required since SMW 2.5.1
+
+			if ( $content ) {
+				$text = ContentHandler::getContentText( $content );
+				$page->doEditContent( ContentHandler::makeContent( $text, $page->getTitle() ),
+					"[SemanticDependencyUpdater] Null edit." ); // since this is a null edit, the edit summary will be ignored.
+				$page->doPurge(); // required since SMW 2.5.1
+
+				# Consider calling doSecondaryDataUpdates() for MW 1.32+
+				# https://doc.wikimedia.org/mediawiki-core/master/php/classWikiPage.html#ac761e927ec2e7d95c9bb48aac60ff7c8
+			}
+
 		}
 
-		wfProfileOut( __METHOD__ );
 		return true;
 	}
 }

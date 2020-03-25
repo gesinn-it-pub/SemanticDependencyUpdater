@@ -27,7 +27,7 @@
     ]
   },
   "JobClasses": {
-    "SDU\\DummyEditJob": "DummyEditJob"
+    "DummyEditJob": "SDU\\DummyEditJob"
   },
   "callback": "SDU\\Hooks::setup",
   "config": {
