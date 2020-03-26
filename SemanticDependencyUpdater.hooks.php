@@ -3,6 +3,7 @@
 namespace SDU;
 
 use SMW;
+use SMWDIBlob;
 use SMWStore;
 use SMWSemanticData;
 use SMWQueryProcessor;
@@ -84,7 +85,9 @@ class Hooks {
 
 		if ( $dataItem != null ) {
 			foreach ( $dataItem as $valueItem ) {
-				Hooks::updatePagesMatchingQuery( $valueItem->getString() );
+				if ( $valueItem instanceof SMWDIBlob ) {
+					Hooks::updatePagesMatchingQuery( $valueItem->getSerialization() );
+				}
 			}
 		}
 
