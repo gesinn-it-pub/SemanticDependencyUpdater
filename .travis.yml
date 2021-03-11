@@ -40,7 +40,7 @@ install:
   - bash ./install-mediawiki.sh
   - bash ./install-phpunit.sh
   - bash ./install-semantic-mediawiki.sh
-  - bash ./tests/travis/install-semantic-interlanguage-links.sh
+  - bash ./tests/travis/install-semantic-dependency-updater.sh
 
 script:
   - bash ./tests/travis/run-tests.sh
