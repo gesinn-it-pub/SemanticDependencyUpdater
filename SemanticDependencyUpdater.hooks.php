@@ -23,7 +23,8 @@ class Hooks {
 		}
 	}
 
-	public static function onAfterDataUpdateComplete( SMWStore $store, SMWSemanticData $newData, $compositePropertyTableDiffIterator ) {
+	public static function onAfterDataUpdateComplete( SMWStore $store, SMWSemanticData $newData,
+													  $compositePropertyTableDiffIterator ) {
 		global $wgSDUProperty;
 		global $wgSDUTraversed;
 
@@ -34,7 +35,7 @@ class Hooks {
 		$wgSDUProperty = str_replace( ' ', '_', $wgSDUProperty );
 		$subject = $newData->getSubject();
 		$title = $subject->getTitle();
-		if ($title == null) {
+		if ( $title == null ) {
 			return true;
 		}
 
