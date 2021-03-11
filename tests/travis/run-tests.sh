@@ -8,7 +8,7 @@ cd $MW_INSTALL_PATH/extensions/SemanticDependencyUpdater
 
 if [ "$TYPE" == "coverage" ]
 then
-	composer phpunit -- --coverage-clover $BASE_PATH/build/coverage.clover
+	php ../../tests/phpunit/phpunit.php -c phpunit.xml.dist --coverage-clover $BASE_PATH/build/coverage.clover
 else
-  composer phpunit 
+  php ../../tests/phpunit/phpunit.php -c phpunit.xml.dist
 fi
