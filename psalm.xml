@@ -17,6 +17,16 @@
     </projectFiles>
     <extraFiles>
         <directory name="../SemanticMediaWiki/includes" />
+        <directory name="../SemanticMediaWiki/src" />
         <directory name="../../includes" />
+        <directory name="../../vendor/param-processor" />
     </extraFiles>
+    <issueHandlers>
+      <UndefinedFunction>
+        <errorLevel type="suppress">
+          <referencedFunction name="wfDebugLog" />
+          <referencedFunction name="smwfGetStore" />
+        </errorLevel>
+      </UndefinedFunction>
+    </issueHandlers>
 </psalm>

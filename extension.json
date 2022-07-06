@@ -17,9 +17,8 @@
       "SemanticMediaWiki": ">= 3.1.0"
     }
   },
-  "AutoloadClasses": {
-    "SDU\\Hooks": "SemanticDependencyUpdater.hooks.php",
-    "SDU\\DummyEditJob": "includes/DummyEditJob.php"
+  "AutoloadNamespaces": {
+    "SDU\\": "src/"
   },
   "Hooks": {
     "SMW::SQLStore::AfterDataUpdateComplete": [
