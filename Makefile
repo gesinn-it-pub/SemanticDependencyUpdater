@@ -47,7 +47,9 @@ bash:
 
 .PHONY: dev-bash
 dev-bash:
-	docker run -it --rm -v $(PWD):$(EXTENSION_FOLDER) -v $(EXTENSION_FOLDER)/node_modules -v $(EXTENSION_FOLDER)/vendor -w $(EXTENSION_FOLDER) $(IMAGE_NAME) bash
+	docker run -it --rm \
+		-v $(PWD):$(EXTENSION_FOLDER) -v $(EXTENSION_FOLDER)/node_modules -v $(EXTENSION_FOLDER)/vendor \
+		-w $(EXTENSION_FOLDER) $(IMAGE_NAME) bash
 
 # ======== Releasing ========
 
