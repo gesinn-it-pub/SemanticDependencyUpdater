@@ -11,7 +11,7 @@ jobs:
 
   test:
 
-    runs-on: self-hosted
+    runs-on: ubuntu-20.04
     continue-on-error: ${{ matrix.experimental }}
 
     strategy:
@@ -22,6 +22,10 @@ jobs:
             coverage: true
             experimental: false
           - mediawiki_version: '1.36'
+            smw_version: dev-master
+            coverage: false
+            experimental: true
+          - mediawiki_version: '1.37'
             smw_version: dev-master
             coverage: false
             experimental: true
