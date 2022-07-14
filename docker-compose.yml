@@ -1,0 +1,23 @@
+services:
+  wiki:
+    build: .
+    environment:
+      - WIKI_DOMAIN=${WIKI_DOMAIN:-wiki.local}
+      - WIKI_PORT=${WIKI_PORT:-8080}
+      - MYSQL_HOST=mysql
+      - PHP_IDE_CONFIG=serverName=wiki.local
+
+  mysql:
+    image: mysql:5
+    environment:
+      - MYSQL_ROOT_PASSWORD=database
+
+  wait-for-wiki:
+    image: mintel/docker-wait-for-it
+    entrypoint: ['/opt/wait-for-it.sh', 'wiki:8080', '-t', '120']
+    profiles:
+      - no-up
+
+volumes:
+  wiki-data:
+  wiki-images:

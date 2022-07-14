@@ -41,15 +41,21 @@ composer-test:
 composer-test-coverage:
 	$(docker_run) composer test-coverage
 
+
+.PHONY: http-integration-test
+http-integration-test:
+	$(docker-run) bash -c "service apache2 start && cd tests/http-integration && npm test"
+
 .PHONY: bash
 bash:
 	docker run -it -v $(PWD):/src $(DOCKER_RUN_ARGS) bash
 
 .PHONY: dev-bash
 dev-bash:
-	docker run -it --rm \
-		-v $(PWD):$(EXTENSION_FOLDER) -v $(EXTENSION_FOLDER)/node_modules -v $(EXTENSION_FOLDER)/vendor \
-		-w $(EXTENSION_FOLDER) $(IMAGE_NAME) bash
+	docker run -it --rm -p 8080:8080 \
+		-v $(PWD):$(EXTENSION_FOLDER) \
+		-v $(EXTENSION_FOLDER)/node_modules/ -v $(EXTENSION_FOLDER)/vendor/ -v $(EXTENSION_FOLDER)/tests/http-integration/node_modules/ \
+		-w $(EXTENSION_FOLDER) $(IMAGE_NAME) bash -c 'service apache2 start && bash'
 
 # ======== Releasing ========
 
