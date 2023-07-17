@@ -4,7 +4,7 @@ namespace SDU;
 
 use ContentHandler;
 use Job;
-use Revision;
+use MediaWiki\Revision\RevisionRecord;
 use WikiPage;
 
 class DummyEditJob extends Job {
@@ -20,7 +20,7 @@ class DummyEditJob extends Job {
 	public function run() {
 		$page = WikiPage::newFromID( $this->title->getArticleId() );
 		if ( $page ) { // prevent NPE when page not found
-			$content = $page->getContent( Revision::RAW );
+			$content = $page->getContent( RevisionRecord::RAW );
 
 			if ( $content ) {
 				$text = ContentHandler::getContentText( $content );

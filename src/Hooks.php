@@ -3,7 +3,7 @@
 namespace SDU;
 
 use ContentHandler;
-use Revision;
+use MediaWiki\Revision\RevisionRecord;
 use SMWDIBlob;
 use SMWQueryProcessor;
 use SMWSemanticData;
@@ -147,7 +147,7 @@ class Hooks {
 			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [Edit] $title" );
 			$page = WikiPage::newFromID( $title->getArticleId() );
 			if ( $page ) { // prevent NPE when page not found
-				$content = $page->getContent( Revision::RAW );
+				$content = $page->getContent( RevisionRecord::RAW );
 
 				if ( $content ) {
 					$text = ContentHandler::getContentText( $content );
