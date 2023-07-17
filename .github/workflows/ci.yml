@@ -18,17 +18,13 @@ jobs:
       matrix:
         include:
           - mediawiki_version: '1.35'
-            smw_version: '4.1.0'
+            smw_version: '4.1.1'
             coverage: true
             experimental: false
-          - mediawiki_version: '1.36'
+          - mediawiki_version: '1.39'
             smw_version: dev-master
             coverage: false
-            experimental: true
-          - mediawiki_version: '1.37'
-            smw_version: dev-master
-            coverage: false
-            experimental: true
+            experimental: false
 
     env:
       MW_VERSION: ${{ matrix.mediawiki_version }}
