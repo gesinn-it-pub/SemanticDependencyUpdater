@@ -4,12 +4,13 @@ namespace SDU;
 
 use ContentHandler;
 use Job;
+use Title;
 use MediaWiki\Revision\RevisionRecord;
 use WikiPage;
 
 class DummyEditJob extends Job {
 
-	public function __construct( array $params ) {
+	public function __construct( Title $title, array $params ) {
 		parent::__construct( 'DummyEditJob', $params );
 	}
 
