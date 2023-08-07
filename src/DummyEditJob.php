@@ -9,8 +9,8 @@ use WikiPage;
 
 class DummyEditJob extends Job {
 
-	public function __construct( $title, $params = '', $id = 0 ) {
-		parent::__construct( 'DummyEditJob', $title, $params, $id );
+	public function __construct( array $params ) {
+		parent::__construct( 'DummyEditJob', $params );
 	}
 
 	/**

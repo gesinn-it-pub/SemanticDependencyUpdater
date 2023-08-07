@@ -2,6 +2,7 @@
 
 namespace SDU;
 
+use JobQueueGroup;
 use ContentHandler;
 use MediaWiki\Revision\RevisionRecord;
 use SMWDIBlob;
@@ -141,8 +142,10 @@ class Hooks {
 
 		if ( $wgSDUUseJobQueue ) {
 			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [Edit Job] $title" );
-			$job = new DummyEditJob( $title );
-			$job->insert();
+			$jobs[] = new DummyEditJob( [
+				'title' => $title
+			]);
+			JobQueueGroup::singleton()->lazyPush( $jobs );
 		} else {
 			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [Edit] $title" );
 			$page = WikiPage::newFromID( $title->getArticleId() );
