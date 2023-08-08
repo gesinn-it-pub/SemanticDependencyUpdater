@@ -3,14 +3,15 @@
 namespace SDU;
 
 use ContentHandler;
+use GenericParameterJob;
 use Job;
 use Title;
 use MediaWiki\Revision\RevisionRecord;
 use WikiPage;
 
-class DummyEditJob extends Job {
+class DummyEditJob extends Job implements GenericParameterJob {
 
-	public function __construct( Title $title, array $params ) {
+	function __construct( array $params ) {
 		parent::__construct( 'DummyEditJob', $params );
 	}
 
@@ -19,7 +20,7 @@ class DummyEditJob extends Job {
 	 * @return bool success
 	 */
 	public function run() {
-		$page = WikiPage::newFromID( $this->title->getArticleId() );
+		$page = WikiPage::newFromID( $this->params['title']->getArticleId() );
 		if ( $page ) { // prevent NPE when page not found
 			$content = $page->getContent( RevisionRecord::RAW );
 
