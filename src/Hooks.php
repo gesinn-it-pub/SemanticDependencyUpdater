@@ -2,9 +2,12 @@
 
 namespace SDU;
 
+use DeferredUpdates;
 use JobQueueGroup;
 use ContentHandler;
 use MediaWiki\Revision\RevisionRecord;
+use SMW\Options;
+use SMW\Services\ServicesFactory as ApplicationFactory;
 use SMWDIBlob;
 use SMWQueryProcessor;
 use SMWSemanticData;
@@ -128,7 +131,7 @@ class Hooks {
 		// and do the dummy edit afterwards
 		// TODO: A threshold when to switch to Queue Jobs might be smarter
 		foreach ( $wikiPageValues as $page ) {
-			self::dummyEdit( $page->getTitle() );
+			self::dummyEdit( $page->getTitle(), $store );
 		}
 	}
 
@@ -137,31 +140,32 @@ class Hooks {
 	 *
 	 * @param Title $title
 	 */
-	public static function dummyEdit( $title ) {
+	public static function dummyEdit( $title, $store ) {
 		global $wgSDUUseJobQueue;
 
 		if ( $wgSDUUseJobQueue ) {
 			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [Edit Job] $title" );
 			$jobs[] = new DummyEditJob( [
-				'title' => $title
+				'title' => $title,
 			]);
 			JobQueueGroup::singleton()->lazyPush( $jobs );
-		} else {
+		} else {		
 			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [Edit] $title" );
 			$page = WikiPage::newFromID( $title->getArticleId() );
 			if ( $page ) { // prevent NPE when page not found
 				$content = $page->getContent( RevisionRecord::RAW );
-
 				if ( $content ) {
-					$text = ContentHandler::getContentText( $content );
-					$page->doEditContent( ContentHandler::makeContent( $text, $page->getTitle() ),
-						"[SemanticDependencyUpdater] Null edit." ); // since this is a null edit, the edit summary will be ignored.
-					$page->doPurge(); // required since SMW 2.5.1
+					$maintenanceFactory = ApplicationFactory::getInstance()->newMaintenanceFactory();
 
+					$dataRebuilder = $maintenanceFactory->newDataRebuilder($store);
+					$dataRebuilder->setOptions(
+						new Options( ['page' => $title->prefixedText] )
+					);
+					$dataRebuilder->rebuild();
 					# Consider calling doSecondaryDataUpdates() for MW 1.32+
 					# https://doc.wikimedia.org/mediawiki-core/master/php/classWikiPage.html#ac761e927ec2e7d95c9bb48aac60ff7c8
 				}
-			}
+}
 		}
 	}
 

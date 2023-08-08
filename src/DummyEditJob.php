@@ -5,8 +5,10 @@ namespace SDU;
 use ContentHandler;
 use GenericParameterJob;
 use Job;
+use SMW\Options;
 use Title;
 use MediaWiki\Revision\RevisionRecord;
+use SMW\Services\ServicesFactory as ApplicationFactory;
 use WikiPage;
 
 class DummyEditJob extends Job implements GenericParameterJob {
@@ -20,18 +22,20 @@ class DummyEditJob extends Job implements GenericParameterJob {
 	 * @return bool success
 	 */
 	public function run() {
+		$store = smwfGetStore();
+
 		$page = WikiPage::newFromID( $this->params['title']->getArticleId() );
 		if ( $page ) { // prevent NPE when page not found
 			$content = $page->getContent( RevisionRecord::RAW );
 
 			if ( $content ) {
-				$text = ContentHandler::getContentText( $content );
-				$page->doEditContent( ContentHandler::makeContent( $text, $page->getTitle() ),
-					"[SemanticDependencyUpdater] Null edit." ); // since this is a null edit, the edit summary will be ignored.
-				$page->doPurge(); // required since SMW 2.5.1
+				$maintenanceFactory = ApplicationFactory::getInstance()->newMaintenanceFactory();
 
-				# Consider calling doSecondaryDataUpdates() for MW 1.32+
-				# https://doc.wikimedia.org/mediawiki-core/master/php/classWikiPage.html#ac761e927ec2e7d95c9bb48aac60ff7c8
+				$dataRebuilder = $maintenanceFactory->newDataRebuilder($store);
+				$dataRebuilder->setOptions(
+					new Options( ['page' => $this->params['title']->prefixedText] )
+				);
+				$dataRebuilder->rebuild();
 			}
 
 		}
