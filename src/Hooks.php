@@ -148,8 +148,8 @@ class Hooks
 		global $wgSDUUseJobQueue;
 
 		$pageArray = [];
-		foreach ($wikiPageValues as $diWikipage) {
-			$page = WikiPage::newFromID($diWikipage->getTitle()->getArticleId());
+		foreach ($wikiPageValues as $wikiPageValue) {
+			$page = WikiPage::newFromID($wikiPageValue->getTitle()->getArticleId());
 			if ($page) {
 				$pageArray[] = $page->getTitle()->prefixedText;
 			}
