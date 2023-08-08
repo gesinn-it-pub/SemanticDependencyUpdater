@@ -4,8 +4,6 @@ namespace SDU;
 
 use DeferredUpdates;
 use JobQueueGroup;
-use ContentHandler;
-use MediaWiki\Revision\RevisionRecord;
 use SMW\Options;
 use SMW\Services\ServicesFactory as ApplicationFactory;
 use SMWDIBlob;
@@ -15,42 +13,46 @@ use SMWStore;
 use Title;
 use WikiPage;
 
-class Hooks {
+class Hooks
+{
 
-	public static function setup() {
-		if ( !defined( 'MEDIAWIKI' ) ) {
+	public static function setup()
+	{
+		if (!defined('MEDIAWIKI')) {
 			die();
 		}
 
-		if ( !defined( 'SMW_VERSION' ) ) {
-			die( "ERROR: Semantic MediaWiki must be installed for Semantic Dependency Updater to run!" );
+		if (!defined('SMW_VERSION')) {
+			die("ERROR: Semantic MediaWiki must be installed for Semantic Dependency Updater to run!");
 		}
 	}
 
-	public static function onAfterDataUpdateComplete( SMWStore $store, SMWSemanticData $newData,
-													  $compositePropertyTableDiffIterator ) {
+	public static function onAfterDataUpdateComplete(
+		SMWStore $store, SMWSemanticData $newData,
+		$compositePropertyTableDiffIterator
+	) {
 		global $wgSDUProperty;
 		global $wgSDUTraversed;
 
-		if ( !isset( $wgSDUTraversed ) ) {
+		if (!isset($wgSDUTraversed)) {
 			$wgSDUTraversed = [];
 		}
 
-		$wgSDUProperty = str_replace( ' ', '_', $wgSDUProperty );
+		$wgSDUProperty = str_replace(' ', '_', $wgSDUProperty);
 		$subject = $newData->getSubject();
 		$title = $subject->getTitle();
-		if ( $title == null ) {
+		if ($title == null) {
 			return true;
 		}
 
 		$id = $title->getPrefixedDBKey();
 
-		wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --> " . $title );
+		wfDebugLog('SemanticDependencyUpdater', "[SDU] --> " . $title);
 
 		// FIRST CHECK: Does the page data contain a $wgSDUProperty semantic property ?
 		$properties = $newData->getProperties();
-		if ( !isset( $properties[$wgSDUProperty] ) ) {
-			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] <-- No SDU property found" );
+		if (!isset($properties[$wgSDUProperty])) {
+			wfDebugLog('SemanticDependencyUpdater', "[SDU] <-- No SDU property found");
 			return true;
 		}
 
@@ -58,26 +60,26 @@ class Hooks {
 
 		// SECOND CHECK: Have there been actual changes in the data? (Ignore internal SMW data!)
 		// TODO: Introduce an explicit list of Semantic Properties to watch ?
-		unset( $diffTable['smw_fpt_mdat'] ); // Ignore SMW's internal properties "smw_fpt_mdat"
+		unset($diffTable['smw_fpt_mdat']); // Ignore SMW's internal properties "smw_fpt_mdat"
 
-		if ( count( $diffTable ) > 0 ) {
+		if (count($diffTable) > 0) {
 			// wfDebugLog('SemanticDependencyUpdater', "[SDU] diffTable: " . print_r($diffTable, true));
-			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] -----> Data changes detected" );
+			wfDebugLog('SemanticDependencyUpdater', "[SDU] -----> Data changes detected");
 		} else {
-			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] <-- No semantic data changes detected" );
+			wfDebugLog('SemanticDependencyUpdater', "[SDU] <-- No semantic data changes detected");
 			return true;
 		}
 
 		// THIRD CHECK: Has this page been already traversed more than twice?
 		// This should only be the case when SMW errors occur.
 		// In that case, the diffTable contains everything and SDU can't know if changes happened
-		if ( array_key_exists( $id, $wgSDUTraversed ) ) {
+		if (array_key_exists($id, $wgSDUTraversed)) {
 			$wgSDUTraversed[$id] = $wgSDUTraversed[$id] + 1;
 		} else {
 			$wgSDUTraversed[$id] = 1;
 		}
-		if ( $wgSDUTraversed[$id] > 2 ) {
-			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] <-- Already traversed" );
+		if ($wgSDUTraversed[$id] > 2) {
+			wfDebugLog('SemanticDependencyUpdater', "[SDU] <-- Already traversed");
 			return true;
 		}
 
@@ -85,88 +87,96 @@ class Hooks {
 
 		// SMW\SemanticData $newData
 		// SMWDataItem[] $dataItem
-		$dataItem = $newData->getPropertyValues( $properties[$wgSDUProperty] );
+		$dataItem = $newData->getPropertyValues($properties[$wgSDUProperty]);
 
-		if ( $dataItem != null ) {
-			foreach ( $dataItem as $valueItem ) {
-				if ( $valueItem instanceof SMWDIBlob ) {
-					self::updatePagesMatchingQuery( $valueItem->getSerialization() );
+		$arrrr = [];
+		if ($dataItem != null) {
+			foreach ($dataItem as $valueItem) {
+				if ($valueItem instanceof SMWDIBlob) {
+					$arrrr = array_merge($arrrr, self::updatePagesMatchingQuery($valueItem->getSerialization()));
 				}
 			}
 		}
 
+		self::rebuildData($arrrr, $store);
 		return true;
 	}
 
 	/**
 	 * @param string $queryString Query string, excluding [[ and ]] brackets
 	 */
-	private static function updatePagesMatchingQuery( $queryString ) {
+	private static function updatePagesMatchingQuery($queryString)
+	{
 		global $sfgListSeparator;
 
-		$queryString = str_replace( 'AND', ']] [[', $queryString );
-		$queryString = str_replace( 'OR', ']] OR [[', $queryString );
+		$queryString = str_replace('AND', ']] [[', $queryString);
+		$queryString = str_replace('OR', ']] OR [[', $queryString);
 
 		// If SF is installed, get the separator character and change it into ||
 		// Otherwise SDU won't work with multi-value properties
-		if ( isset( $sfgListSeparator ) ) {
-			$queryString = rtrim( $queryString, $sfgListSeparator );
-			$queryString = str_replace( $sfgListSeparator, ' || ', $queryString );
+		if (isset($sfgListSeparator)) {
+			$queryString = rtrim($queryString, $sfgListSeparator);
+			$queryString = str_replace($sfgListSeparator, ' || ', $queryString);
 		}
 
-		wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [[$queryString]]" );
+		wfDebugLog('SemanticDependencyUpdater', "[SDU] --------> [[$queryString]]");
 
 		$store = smwfGetStore();
 
 		$params = [
 			'limit' => 10000,
 		];
-		$processedParams = SMWQueryProcessor::getProcessedParams( $params );
+		$processedParams = SMWQueryProcessor::getProcessedParams($params);
 		$query =
-			SMWQueryProcessor::createQuery( "[[$queryString]]", $processedParams, SMWQueryProcessor::SPECIAL_PAGE );
-		$result = $store->getQueryResult( $query ); // SMWQueryResult
+			SMWQueryProcessor::createQuery("[[$queryString]]", $processedParams, SMWQueryProcessor::SPECIAL_PAGE);
+		$result = $store->getQueryResult($query); // SMWQueryResult
 		$wikiPageValues = $result->getResults(); // array of SMWWikiPageValues
 
-		// TODO: This can be optimized by collecting a list of all pages first, make them unique
-		// and do the dummy edit afterwards
-		// TODO: A threshold when to switch to Queue Jobs might be smarter
-		foreach ( $wikiPageValues as $page ) {
-			self::dummyEdit( $page->getTitle(), $store );
-		}
+		return $wikiPageValues;
+
 	}
 
 	/**
-	 * Save a null revision in the page's history to propagate the update
+	 * Rebuilds data of the given wikipages to regenerate semantic attrubutes and re-run queries 
 	 *
+	 * @param SMWWikiPageValues[] $wikiPageValues
 	 * @param Title $title
 	 */
-	public static function dummyEdit( $title, $store ) {
+
+	public static function rebuildData($wikiPageValues, $store)
+	{
 		global $wgSDUUseJobQueue;
 
-		if ( $wgSDUUseJobQueue ) {
-			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [Edit Job] $title" );
-			$jobs[] = new DummyEditJob( [
-				'title' => $title,
-			]);
-			JobQueueGroup::singleton()->lazyPush( $jobs );
-		} else {		
-			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [Edit] $title" );
-			$page = WikiPage::newFromID( $title->getArticleId() );
-			if ( $page ) { // prevent NPE when page not found
-				$content = $page->getContent( RevisionRecord::RAW );
-				if ( $content ) {
-					$maintenanceFactory = ApplicationFactory::getInstance()->newMaintenanceFactory();
+		$pageArray = [];
+		foreach ($wikiPageValues as $diWikipage) {
+			$page = WikiPage::newFromID($diWikipage->getTitle()->getArticleId());
+			if ($page) {
+				$pageArray[] = $page->getTitle()->prefixedText;
+			}
+		}
+		$pageString = implode($pageArray, "|");
 
-					$dataRebuilder = $maintenanceFactory->newDataRebuilder($store);
-					$dataRebuilder->setOptions(
-						new Options( ['page' => $title->prefixedText] )
-					);
-					$dataRebuilder->rebuild();
-					# Consider calling doSecondaryDataUpdates() for MW 1.32+
-					# https://doc.wikimedia.org/mediawiki-core/master/php/classWikiPage.html#ac761e927ec2e7d95c9bb48aac60ff7c8
-				}
-}
+		// TODO: A threshold when to switch to Queue Jobs might be smarter
+		if ($wgSDUUseJobQueue) {
+			$jobs[] = new RebuildDataJob([
+				'pageString' => $pageString,
+			]);
+			JobQueueGroup::singleton()->lazyPush($jobs);
+		} else {
+
+			DeferredUpdates::addCallableUpdate(function () use ($page, $store, $pageString) {
+				wfDebugLog('SemanticDependencyUpdater', "[SDU] --------> [rebuildData] $pageString");
+				$maintenanceFactory = ApplicationFactory::getInstance()->newMaintenanceFactory();
+
+				$dataRebuilder = $maintenanceFactory->newDataRebuilder($store);
+				$dataRebuilder->setOptions(
+					new Options(['page' => $pageString])
+				);
+				$dataRebuilder->rebuild();
+			});
 		}
 	}
+
+
 
 }
