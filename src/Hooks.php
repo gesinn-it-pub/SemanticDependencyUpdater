@@ -89,16 +89,16 @@ class Hooks
 		// SMWDataItem[] $dataItem
 		$dataItem = $newData->getPropertyValues($properties[$wgSDUProperty]);
 
-		$arrrr = [];
+		$wikiPageValues = [];
 		if ($dataItem != null) {
 			foreach ($dataItem as $valueItem) {
 				if ($valueItem instanceof SMWDIBlob) {
-					$arrrr = array_merge($arrrr, self::updatePagesMatchingQuery($valueItem->getSerialization()));
+					$wikiPageValues = array_merge($wikiPageValues, self::updatePagesMatchingQuery($valueItem->getSerialization()));
 				}
 			}
 		}
 
-		self::rebuildData($arrrr, $store);
+		self::rebuildData($wikiPageValues, $store);
 		return true;
 	}
 
