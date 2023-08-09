@@ -34,8 +34,10 @@ class PageUpdaterJob extends Job implements GenericParameterJob
 		$performer = RequestContext::getMain()->getUser();
 		$updater = $page->newPageUpdater($performer);
 
+
 		$updater->setContent(SlotRecord::MAIN, $content);
 		$updater->saveRevision(CommentStoreComment::newUnsavedComment(__CLASS__ . ' [SemanticDependencyUpdater] Null edit. ' . $title));
+
 
 		return true;
 	}
