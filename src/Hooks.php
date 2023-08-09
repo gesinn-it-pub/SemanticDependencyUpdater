@@ -161,6 +161,11 @@ class Hooks
 			$jobs[] = new RebuildDataJob([
 				'pageString' => $pageString,
 			]);
+			foreach ($wikiPageValues as $page) {
+				$jobs[] = new PageUpdaterJob([
+					'page' => $page
+				]);
+			}
 			JobQueueGroup::singleton()->lazyPush($jobs);
 		} else {
 
