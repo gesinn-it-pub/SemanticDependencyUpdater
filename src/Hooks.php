@@ -182,6 +182,4 @@ class Hooks
 		}
 	}
 
-
-
 }
