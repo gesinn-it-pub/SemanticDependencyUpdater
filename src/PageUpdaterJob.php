@@ -10,34 +10,29 @@ use MediaWiki\Revision\SlotRecord;
 use RequestContext;
 use WikiPage;
 
-class PageUpdaterJob extends Job implements GenericParameterJob
-{
+class PageUpdaterJob extends Job implements GenericParameterJob {
 
-	function __construct(array $params)
-	{
-		parent::__construct('PageUpdaterJob', $params);
+	public function __construct( array $params ) {
+		parent::__construct( 'PageUpdaterJob', $params );
 	}
 
 	/**
 	 * Run the job
 	 * @return bool success
 	 */
-	public function run()
-	{
+	public function run() {
 		$pageParam = $this->params['page'];
-		$page = WikiPage::newFromID($this->params['page']->getTitle()->getArticleId());
-		$content = $page->getContent(RevisionRecord::RAW);
+		$page = WikiPage::newFromID( $this->params['page']->getTitle()->getArticleId() );
+		$content = $page->getContent( RevisionRecord::RAW );
 		$title = $page->getTitle();
 
-		wfDebugLog('SemanticDependencyUpdater', "[SDU] --------> [rebuildData job] $title");
+		wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [rebuildData job] $title" );
 
 		$performer = RequestContext::getMain()->getUser();
-		$updater = $page->newPageUpdater($performer);
+		$updater = $page->newPageUpdater( $performer );
 
-
-		$updater->setContent(SlotRecord::MAIN, $content);
-		$updater->saveRevision(CommentStoreComment::newUnsavedComment(__CLASS__ . ' [SemanticDependencyUpdater] Null edit. ' . $title));
-
+		$updater->setContent( SlotRecord::MAIN, $content );
+		$updater->saveRevision( CommentStoreComment::newUnsavedComment( __CLASS__ . ' [SemanticDependencyUpdater] Null edit. ' . $title ) );
 
 		return true;
 	}
