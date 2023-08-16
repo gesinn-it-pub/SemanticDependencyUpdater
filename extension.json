@@ -1,6 +1,6 @@
 {
   "name": "SemanticDependencyUpdater",
-  "version": "2.1.0",
+  "version": "3.0.0-beta",
   "author": [
     "Simon Heimler (gesinn.it GmbH & Co. KG)",
     "Alexander Gesinn (gesinn.it GmbH & Co. KG)",
@@ -12,9 +12,9 @@
   "license-name": "MIT",
   "type": "semantic",
   "requires": {
-    "MediaWiki": ">= 1.31",
+    "MediaWiki": ">= 1.35",
     "extensions": {
-      "SemanticMediaWiki": ">= 3.1.0"
+      "SemanticMediaWiki": ">= 4.0.0"
     }
   },
   "AutoloadNamespaces": {
@@ -26,12 +26,13 @@
     ]
   },
   "JobClasses": {
-    "DummyEditJob": "SDU\\DummyEditJob"
+    "RebuildDataJob": "SDU\\RebuildDataJob",
+    "PageUpdaterJob": "SDU\\PageUpdaterJob"
   },
   "callback": "SDU\\Hooks::setup",
   "config": {
     "SDUProperty": "Semantic Dependency",
-    "SDUUseJobQueue": false
+    "SDUUseJobQueue": true
   },
   "manifest_version": 1
 }

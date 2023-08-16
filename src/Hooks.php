@@ -2,13 +2,14 @@
 
 namespace SDU;
 
-use ContentHandler;
-use MediaWiki\Revision\RevisionRecord;
+use DeferredUpdates;
+use JobQueueGroup;
+use SMW\Options;
+use SMW\Services\ServicesFactory as ApplicationFactory;
 use SMWDIBlob;
 use SMWQueryProcessor;
 use SMWSemanticData;
 use SMWStore;
-use Title;
 use WikiPage;
 
 class Hooks {
@@ -23,8 +24,10 @@ class Hooks {
 		}
 	}
 
-	public static function onAfterDataUpdateComplete( SMWStore $store, SMWSemanticData $newData,
-													  $compositePropertyTableDiffIterator ) {
+	public static function onAfterDataUpdateComplete(
+		SMWStore $store, SMWSemanticData $newData,
+		$compositePropertyTableDiffIterator
+	) {
 		global $wgSDUProperty;
 		global $wgSDUTraversed;
 
@@ -83,14 +86,16 @@ class Hooks {
 		// SMWDataItem[] $dataItem
 		$dataItem = $newData->getPropertyValues( $properties[$wgSDUProperty] );
 
+		$wikiPageValues = [];
 		if ( $dataItem != null ) {
 			foreach ( $dataItem as $valueItem ) {
 				if ( $valueItem instanceof SMWDIBlob ) {
-					self::updatePagesMatchingQuery( $valueItem->getSerialization() );
+					$wikiPageValues = array_merge( $wikiPageValues, self::updatePagesMatchingQuery( $valueItem->getSerialization() ) );
 				}
 			}
 		}
 
+		self::rebuildData( $wikiPageValues, $store );
 		return true;
 	}
 
@@ -123,42 +128,49 @@ class Hooks {
 		$result = $store->getQueryResult( $query ); // SMWQueryResult
 		$wikiPageValues = $result->getResults(); // array of SMWWikiPageValues
 
-		// TODO: This can be optimized by collecting a list of all pages first, make them unique
-		// and do the dummy edit afterwards
-		// TODO: A threshold when to switch to Queue Jobs might be smarter
-		foreach ( $wikiPageValues as $page ) {
-			self::dummyEdit( $page->getTitle() );
-		}
+		return $wikiPageValues;
 	}
 
 	/**
-	 * Save a null revision in the page's history to propagate the update
+	 * Rebuilds data of the given wikipages to regenerate semantic attrubutes and re-run queries
 	 *
-	 * @param Title $title
+	 * @param SMWWikiPageValues[] $wikiPageValues
+	 * @param SMWStore $store
 	 */
-	public static function dummyEdit( $title ) {
+	public static function rebuildData( $wikiPageValues, $store ) {
 		global $wgSDUUseJobQueue;
 
-		if ( $wgSDUUseJobQueue ) {
-			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [Edit Job] $title" );
-			$job = new DummyEditJob( $title );
-			$job->insert();
-		} else {
-			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [Edit] $title" );
-			$page = WikiPage::newFromID( $title->getArticleId() );
-			if ( $page ) { // prevent NPE when page not found
-				$content = $page->getContent( RevisionRecord::RAW );
-
-				if ( $content ) {
-					$text = ContentHandler::getContentText( $content );
-					$page->doEditContent( ContentHandler::makeContent( $text, $page->getTitle() ),
-						"[SemanticDependencyUpdater] Null edit." ); // since this is a null edit, the edit summary will be ignored.
-					$page->doPurge(); // required since SMW 2.5.1
-
-					# Consider calling doSecondaryDataUpdates() for MW 1.32+
-					# https://doc.wikimedia.org/mediawiki-core/master/php/classWikiPage.html#ac761e927ec2e7d95c9bb48aac60ff7c8
-				}
+		$pageArray = [];
+		foreach ( $wikiPageValues as $wikiPageValue ) {
+			$page = WikiPage::newFromID( $wikiPageValue->getTitle()->getArticleId() );
+			if ( $page ) {
+				$pageArray[] = $page->getTitle()->prefixedText;
 			}
+		}
+		$pageString = implode( $pageArray, "|" );
+
+		// TODO: A threshold when to switch to Queue Jobs might be smarter
+		if ( $wgSDUUseJobQueue ) {
+			$jobs[] = new RebuildDataJob( [
+				'pageString' => $pageString,
+			] );
+			foreach ( $wikiPageValues as $page ) {
+				$jobs[] = new PageUpdaterJob( [
+					'page' => $page
+				] );
+			}
+			JobQueueGroup::singleton()->lazyPush( $jobs );
+		} else {
+			DeferredUpdates::addCallableUpdate( static function () use ( $store, $pageString ) {
+				wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [rebuildData] $pageString" );
+				$maintenanceFactory = ApplicationFactory::getInstance()->newMaintenanceFactory();
+
+				$dataRebuilder = $maintenanceFactory->newDataRebuilder( $store );
+				$dataRebuilder->setOptions(
+					new Options( [ 'page' => $pageString ] )
+				);
+				$dataRebuilder->rebuild();
+			} );
 		}
 	}
 
