@@ -150,28 +150,35 @@ class Hooks {
 		$pageString = implode( $pageArray, "|" );
 
 		// TODO: A threshold when to switch to Queue Jobs might be smarter
-		if ( $wgSDUUseJobQueue ) {
-			$jobs[] = new RebuildDataJob( [
-				'pageString' => $pageString,
-			] );
-			foreach ( $wikiPageValues as $page ) {
-				$jobs[] = new PageUpdaterJob( [
-					'page' => $page
-				] );
-			}
-			JobQueueGroup::singleton()->lazyPush( $jobs );
-		} else {
-			DeferredUpdates::addCallableUpdate( static function () use ( $store, $pageString ) {
-				wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [rebuildData] $pageString" );
-				$maintenanceFactory = ApplicationFactory::getInstance()->newMaintenanceFactory();
 
-				$dataRebuilder = $maintenanceFactory->newDataRebuilder( $store );
-				$dataRebuilder->setOptions(
-					new Options( [ 'page' => $pageString ] )
-				);
-				$dataRebuilder->rebuild();
-			} );
+		if ($pageString !== "") {
+			if ( $wgSDUUseJobQueue ) {
+				$jobs = [];
+				$jobs[] = new RebuildDataJob( [
+					'pageString' => $pageString,
+				] );
+				foreach ( $wikiPageValues as $page ) {
+					$jobs[] = new PageUpdaterJob( [
+						'page' => $page
+					] );
+				}
+				if($jobs) {
+					JobQueueGroup::singleton()->lazyPush( $jobs );
+				}
+			} else {
+				DeferredUpdates::addCallableUpdate( static function () use ( $store, $pageString ) {
+					wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [rebuildData] $pageString" );
+					$maintenanceFactory = ApplicationFactory::getInstance()->newMaintenanceFactory();
+
+					$dataRebuilder = $maintenanceFactory->newDataRebuilder( $store );
+					$dataRebuilder->setOptions(
+						new Options( [ 'page' => $pageString ] )
+					);
+					$dataRebuilder->rebuild();
+				} );
+			}
 		}
+
 	}
 
 }
