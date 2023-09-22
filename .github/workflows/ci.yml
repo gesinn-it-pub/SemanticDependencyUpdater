@@ -48,6 +48,7 @@ jobs:
             database_type: postgres
             database_image: "postgres:14"
             coverage: false
+            experimental: true
 
     env:
       SMW_VERSION: ${{ matrix.smw_version }}
