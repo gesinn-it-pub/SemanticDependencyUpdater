@@ -1,76 +1,137 @@
-EXTENSION := SemanticDependencyUpdater
+-include .env
+export
 
+# ======== Naming ========
+EXTENSION := SemanticDependencyUpdater
+EXTENSION_FOLDER := /var/www/html/extensions/${EXTENSION}
+extension := $(shell echo $(EXTENSION) | tr A-Z a-z})
+IMAGE_NAME := $(extension):test-$(MW_VERSION)
+
+# ======== CI ENV Variables ========
 MW_VERSION ?= 1.35
 SMW_VERSION ?= 4.0.1
+IMAGE_VERSION := $(MW_VERSION)
+PHP_VERSION ?= 7.4
+DB_TYPE ?= sqlite
+DB_IMAGE ?= ""
 
-EXTENSION_FOLDER := /var/www/html/extensions/$(EXTENSION)
-IMAGE_NAME := $(shell echo $(EXTENSION) | tr A-Z a-z}):test-$(MW_VERSION)-$(SMW_VERSION)
-PWD := $(shell bash -c "pwd -W 2>/dev/null || pwd")# this way it works on Windows and Linux
-DOCKER_RUN_ARGS := --rm -v $(PWD)/coverage:$(EXTENSION_FOLDER)/coverage -w $(EXTENSION_FOLDER) $(IMAGE_NAME)
-docker_run := docker run $(DOCKER_RUN_ARGS)
 
-.PHONY: all
-all:
+# ======== Docker-Compose Commands ========
+environment = MW_VERSION=$(MW_VERSION) \
+IMAGE_NAME=$(IMAGE_NAME) \
+PHP_VERSION=$(PHP_VERSION) \
+DB_TYPE=$(DB_TYPE) \
+DB_IMAGE=$(DB_IMAGE) \
+EXTENSION_FOLDER=$(EXTENSION_FOLDER)
+
+
+ifneq (,$(wildcard ./docker-compose.override.yml))
+     COMPOSE_OVERRIDE=-f docker-compose.override.yml
+endif
+
+compose = $(environment) docker-compose $(COMPOSE_OVERRIDE) $(COMPOSE_ARGS)
+compose-ci = $(environment) docker-compose -f docker-compose.yml -f docker-compose-ci.yml $(COMPOSE_OVERRIDE) $(COMPOSE_ARGS)
+
+compose-run = $(compose) run -T --rm
+compose-exec-wiki = $(compose) exec -T wiki
+
+show-current-target = @echo; echo "======= $@ ========"
 
 # ======== CI ========
-
+# ======== Global Targets ========
 .PHONY: ci
-ci: build test
+ci: install composer-test
 
 .PHONY: ci-coverage
-ci-coverage: build test-coverage
+ci-coverage: install composer-test-coverage
 
-.PHONY: build
-build:
-	docker build --tag $(IMAGE_NAME) \
-		--build-arg=MW_VERSION=$(MW_VERSION) \
-		--build-arg=SMW_VERSION=$(SMW_VERSION) \
-		.
+.PHONY: install
+install: destroy up .install
 
-.PHONY: test
-test: composer-test
+.PHONY: up
+up: .init .build .up
 
-.PHONY: test-coverage
-test-coverage: composer-test-coverage
+.PHONY: down
+down: .init .down
+
+.PHONY: destroy
+destroy: .init .destroy
+
+.PHONY: bash
+bash: up .bash
+
+# ======== General Docker-Compose Helper Targets ========
+
+.PHONY: show-logs
+show-logs: .init
+	$(show-current-target)
+	$(compose-ci) logs -f || true
+
+.PHONY: .build
+.build:
+	$(show-current-target)
+	$(compose-ci) build wiki
+.PHONY: .up
+.up:
+	$(show-current-target)
+	$(compose-ci) up -d
+
+.PHONY: .install
+.install: .wait-for-db
+	$(show-current-target)
+	$(compose-exec-wiki) bash -c "sudo -u www-data \
+		php maintenance/install.php \
+		    --pass=wiki4everyone --server=http://localhost:8080 --scriptpath='' \
+    		--dbname=wiki --dbuser=wiki --dbpass=wiki $(WIKI_DB_CONFIG) wiki WikiSysop && \
+		cat __setup_extension__ >> LocalSettings.php && \
+		sudo -u www-data php maintenance/update.php --skip-external-dependencies --quick \
+		"
+
+.PHONY: .down
+.down:
+	$(show-current-target)
+	$(compose-ci) down
+
+.PHONY: .destroy
+.destroy:
+	$(show-current-target)
+	$(compose-ci) down -v
+
+.PHONY: .bash
+.bash: .init
+	$(show-current-target)
+	$(compose-ci) exec wiki bash -c "cd $(EXTENSION_FOLDER) && bash"
+
+# ======== Test Targets ========
 
 .PHONY: composer-test
 composer-test:
-	$(docker_run) composer test
+	$(show-current-target)
+	$(compose-exec-wiki) bash -c "cd $(EXTENSION_FOLDER) && composer phpunit"
 
 .PHONY: composer-test-coverage
 composer-test-coverage:
-	$(docker_run) composer test-coverage
+	$(show-current-target)
+	$(compose-exec-wiki) bash -c "cd $(EXTENSION_FOLDER) && composer phpunit-coverage"
 
-.PHONY: bash
-bash:
-	docker run -it -v $(PWD):/src $(DOCKER_RUN_ARGS) bash
-
-.PHONY: dev-bash
-dev-bash:
-	docker run -it --rm \
-		-v $(PWD):$(EXTENSION_FOLDER) -v $(EXTENSION_FOLDER)/node_modules -v $(EXTENSION_FOLDER)/vendor \
-		-w $(EXTENSION_FOLDER) $(IMAGE_NAME) bash
-
-# ======== Releasing ========
-
-VERSION = `node -e 'console.log(require("./extension.json").version)'`
-
-.PHONY: release
-release: ci git-push gh-login
-	gh release create $(VERSION)
-
-.PHONY: git-push
-git-push:
-	git diff --quiet || (echo 'git directory has changes'; exit 1)
-	git push
-
-.PHONY: gh-login
-gh-login: require-GH_API_TOKEN
-	gh config set prompt disabled
-	@echo $(GH_API_TOKEN) | gh auth login --with-token
-
-.PHONY: require-GH_API_TOKEN
-require-GH_API_TOKEN:
-ifndef GH_API_TOKEN
-	$(error GH_API_TOKEN is not set)
+# ======== Helpers ========
+.PHONY: .init
+.init:
+	$(show-current-target)
+	$(eval COMPOSE_ARGS = --project-name ${extension}-$(DB_TYPE) --profile $(DB_TYPE))
+ifeq ($(DB_TYPE), sqlite)
+	$(eval WIKI_DB_CONFIG = --dbtype=$(DB_TYPE) --dbpath=/tmp/sqlite)
+else
+	$(eval WIKI_DB_CONFIG = --dbtype=$(DB_TYPE) --dbserver=$(DB_TYPE) --installdbuser=root --installdbpass=database)
 endif
+	@echo "COMPOSE_ARGS: $(COMPOSE_ARGS)"
+
+.PHONY: .wait-for-db
+.wait-for-db:
+	$(show-current-target)
+ifeq ($(DB_TYPE), mysql)
+	$(compose-run) wait-for $(DB_TYPE):3306 -t 120
+else ifeq ($(DB_TYPE), postgres)
+	$(compose-run) wait-for $(DB_TYPE):5432 -t 120
+endif
+
