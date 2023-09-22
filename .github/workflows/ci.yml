@@ -2,15 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
   workflow_dispatch:
 
 jobs:
-
-  test:
-
+  build:
     runs-on: ubuntu-20.04
     continue-on-error: ${{ matrix.experimental }}
 
@@ -18,34 +16,34 @@ jobs:
       matrix:
         include:
           - mediawiki_version: 1.35
-            smw_version: '4.1.1'
+            smw_version: "4.1.1"
             php_version: 7.4
             database_type: mysql
             database_image: "mysql:5.7"
             coverage: true
             experimental: false
           - mediawiki_version: 1.35
-            smw_version: '4.1.1'
+            smw_version: "4.1.1"
             php_version: 7.4
             database_type: sqlite
             coverage: false
             experimental: false
           - mediawiki_version: 1.39
-            smw_version: '4.1.1'
+            smw_version: "4.1.1"
             php_version: 8.1
             database_type: mysql
             database_image: "mysql:8"
             coverage: false
             experimental: false
           - mediawiki_version: 1.39
-            smw_version: '4.1.1'
+            smw_version: "4.1.1"
             php_version: 8.1
             database_type: mysql
             database_image: "mariadb:latest"
             coverage: false
             experimental: true
           - mediawiki_version: 1.39
-            smw_version: '4.1.1'
+            smw_version: "4.1.1"
             php_version: 8.1
             database_type: postgres
             database_image: "postgres:14"
@@ -57,7 +55,6 @@ jobs:
       PHP_VERSION: ${{ matrix.php_version }}
       DB_TYPE: ${{ matrix.database_type }}
       DB_IMAGE: ${{ matrix.database_image }}
-
 
     steps:
       - name: Checkout
