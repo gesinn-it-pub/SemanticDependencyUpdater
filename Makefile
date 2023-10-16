@@ -9,7 +9,7 @@ IMAGE_NAME := $(extension):test-$(MW_VERSION)
 
 # ======== CI ENV Variables ========
 MW_VERSION ?= 1.35
-SMW_VERSION ?= 4.0.1
+SMW_VERSION ?= 4.1.2
 IMAGE_VERSION := $(MW_VERSION)
 PHP_VERSION ?= 7.4
 DB_TYPE ?= sqlite
