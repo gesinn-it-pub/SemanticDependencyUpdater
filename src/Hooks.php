@@ -4,12 +4,16 @@ namespace SDU;
 
 use DeferredUpdates;
 use JobQueueGroup;
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Page\WikiPageFactory;
 use SMW\Options;
 use SMW\Services\ServicesFactory as ApplicationFactory;
 use SMWDIBlob;
+use SMWDIWikiPage;
 use SMWQueryProcessor;
 use SMWSemanticData;
 use SMWStore;
+use Title;
 use WikiPage;
 
 class Hooks {
@@ -22,6 +26,15 @@ class Hooks {
 				if ( !defined( 'SMW_VERSION' ) ) {
 						die( "ERROR: Semantic MediaWiki must be installed for Semantic Dependency Updater to run!" );
 				}
+		}
+
+		// Note: at the time SMW::SQLStore::BeforeDeleteSubjectComplete fires there is no data already
+		// so the PageDelete hook is used
+		public static function onPageDelete( $page, $deleter, string $reason, $status, bool $suppress ) {
+				$store = smwfGetStore();
+				$diWikiPage = SMWDIWikiPage::newFromTitle( Title::newFromDBkey( $page->getDBkey() ) );
+				$smwData = $store->getSemanticData( $diWikiPage );
+				self::onAfterDataUpdateComplete( $store, $smwData, null );
 		}
 
 		public static function onAfterDataUpdateComplete(
@@ -53,18 +66,21 @@ class Hooks {
 						return true;
 				}
 
-				$diffTable = $compositePropertyTableDiffIterator->getOrderedDiffByTable();
+				if ( $compositePropertyTableDiffIterator !== null ) {
+					$diffTable = $compositePropertyTableDiffIterator->getOrderedDiffByTable();
 
-				// SECOND CHECK: Have there been actual changes in the data? (Ignore internal SMW data!)
-				// TODO: Introduce an explicit list of Semantic Properties to watch ?
-				unset( $diffTable['smw_fpt_mdat'] ); // Ignore SMW's internal properties "smw_fpt_mdat"
+					// SECOND CHECK: Have there been actual changes in the data? (Ignore internal SMW data!)
+					// TODO: Introduce an explicit list of Semantic Properties to watch ?
+					unset( $diffTable['smw_fpt_mdat'] ); // Ignore SMW's internal properties "smw_fpt_mdat"
 
-				if ( count( $diffTable ) > 0 ) {
+					if ( count( $diffTable ) > 0 ) {
 						// wfDebugLog('SemanticDependencyUpdater', "[SDU] diffTable: " . print_r($diffTable, true));
 						wfDebugLog( 'SemanticDependencyUpdater', "[SDU] -----> Data changes detected" );
-				} else {
+					} else {
 						wfDebugLog( 'SemanticDependencyUpdater', "[SDU] <-- No semantic data changes detected" );
+
 						return true;
+					}
 				}
 
 				// THIRD CHECK: Has this page been already traversed more than twice?
@@ -142,12 +158,12 @@ class Hooks {
 
 				$pageArray = [];
 				foreach ( $wikiPageValues as $wikiPageValue ) {
-						$page = WikiPage::newFromID( $wikiPageValue->getTitle()->getArticleId() );
+						$page = MediaWikiServices::getInstance()->getWikiPageFactory()->newFromID( $wikiPageValue->getTitle()->getArticleId() );
 						if ( $page ) {
-								$pageArray[] = $page->getTitle()->prefixedText;
+								$pageArray[] = $page->getTitle()->getPrefixedText();
 						}
 				}
-				$pageString = implode( $pageArray, "|" );
+				$pageString = implode( "|", $pageArray );
 
 				// TODO: A threshold when to switch to Queue Jobs might be smarter
 
@@ -175,6 +191,10 @@ class Hooks {
 												new Options( [ 'page' => $pageString ] )
 										);
 										$dataRebuilder->rebuild();
+										foreach ( explode( '|', $pageString ) as $wikipage ) {
+												$wikipage = new WikiPage( Title::newFromText( $pageString ) );
+												$wikipage->doPurge();
+										}
 								} );
 						}
 				}

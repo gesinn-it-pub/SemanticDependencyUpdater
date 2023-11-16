@@ -5,6 +5,7 @@ namespace SDU;
 use CommentStoreComment;
 use GenericParameterJob;
 use Job;
+use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
 use RequestContext;
@@ -22,7 +23,7 @@ class PageUpdaterJob extends Job implements GenericParameterJob {
 	 */
 	public function run() {
 		$pageParam = $this->params['page'];
-		$page = WikiPage::newFromID( $this->params['page']->getTitle()->getArticleId() );
+		$page = MediaWikiServices::getInstance()->getWikiPageFactory()->newFromID( $this->params['page']->getTitle()->getArticleId() );
 		$content = $page->getContent( RevisionRecord::RAW );
 		$title = $page->getTitle();
 
@@ -34,6 +35,7 @@ class PageUpdaterJob extends Job implements GenericParameterJob {
 		$updater->setContent( SlotRecord::MAIN, $content );
 		$updater->saveRevision( CommentStoreComment::newUnsavedComment( __CLASS__ . ' [SemanticDependencyUpdater] Null edit. ' . $title ) );
 
+		$page->doPurge();
 		return true;
 	}
 }
