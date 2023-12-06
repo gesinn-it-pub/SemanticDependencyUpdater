@@ -27,7 +27,8 @@
   },
   "JobClasses": {
     "RebuildDataJob": "SDU\\RebuildDataJob",
-    "PageUpdaterJob": "SDU\\PageUpdaterJob"
+    "PageUpdaterJob": "SDU\\PageUpdaterJob",
+    "SemanticDependencyUpdaterJob": "SDU\\SemanticDependencyUpdaterJob"
   },
   "callback": "SDU\\Hooks::setup",
   "config": {

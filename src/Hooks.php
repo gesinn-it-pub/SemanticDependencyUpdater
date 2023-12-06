@@ -43,8 +43,9 @@ class Hooks {
 				}
 
 				$id = $title->getPrefixedDBKey();
-
+				
 				wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --> " . $title );
+				$diffTable = $compositePropertyTableDiffIterator->getOrderedDiffByTable();
 
 				// FIRST CHECK: Does the page data contain a $wgSDUProperty semantic property ?
 				$properties = $newData->getProperties();
@@ -53,7 +54,7 @@ class Hooks {
 						return true;
 				}
 
-				$diffTable = $compositePropertyTableDiffIterator->getOrderedDiffByTable();
+				//rebuildData.php
 
 				// SECOND CHECK: Have there been actual changes in the data? (Ignore internal SMW data!)
 				// TODO: Introduce an explicit list of Semantic Properties to watch ?
@@ -141,10 +142,10 @@ class Hooks {
 				global $wgSDUUseJobQueue;
 
 				$pageArray = [];
-				foreach ( $wikiPageValues as $wikiPageValue ) {
+				foreach ( $wikiPageValues as $index=>$wikiPageValue ) {
 						$page = WikiPage::newFromID( $wikiPageValue->getTitle()->getArticleId() );
 						if ( $page ) {
-								$pageArray[] = $page->getTitle()->prefixedText;
+							$pageArray[] = $page->getTitle()->prefixedText;
 						}
 				}
 				$pageString = implode( $pageArray, "|" );
@@ -154,17 +155,46 @@ class Hooks {
 				if ( $pageString !== "" ) {
 						if ( $wgSDUUseJobQueue ) {
 								$jobs = [];
-								$jobs[] = new RebuildDataJob( [
-										'pageString' => $pageString,
-								] );
-								foreach ( $wikiPageValues as $page ) {
-										$jobs[] = new PageUpdaterJob( [
-												'page' => $page
-										] );
+								foreach ( $wikiPageValues as $index=>$page ) {
+									$jobs[] = new SemanticDependencyUpdaterJob( [
+											'page' => $page
+									] );
 								}
 								if ( $jobs ) {
-										JobQueueGroup::singleton()->lazyPush( $jobs );
+									JobQueueGroup::singleton()->Push( $jobs );
 								}
+								
+
+
+								// $jobsSelf = [];
+								// $pageSelf = WikiPage::newFromID( $wikiPageValues[0]->getTitle()->getArticleId() );
+								// $jobsSelf[] = new RebuildDataJob( [
+								// 		'pageString' =>  $pageSelf->getTitle()->prefixedText,
+								// ] );
+							
+								// $issue555 = $wikiPageValues[0];
+								// $jobsSelf[] = new PageUpdaterJob( [
+								// 		'page' => $wikiPageValues[0]
+								// ] );
+
+								// if ( $jobsSelf ) {
+								// 		JobQueueGroup::singleton()->Push( $jobsSelf );
+								// }
+
+								// $jobs = [];
+								// $jobs[] = new RebuildDataJob( [
+								// 		'pageString' => $pageString,
+								// ] );
+								// foreach ( $wikiPageValues as $index=>$page ) {
+								// 		if($index != 0) {
+								// 			$jobs[] = new PageUpdaterJob( [
+								// 					'page' => $page
+								// 			] );
+								// 		}
+								// }
+								// if ( $jobs ) {
+								// 		JobQueueGroup::singleton()->Push( $jobs );
+								// }
 						} else {
 								DeferredUpdates::addCallableUpdate( static function () use ( $store, $pageString ) {
 										wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [rebuildData] $pageString" );
