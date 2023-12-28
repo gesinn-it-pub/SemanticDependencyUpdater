@@ -25,10 +25,6 @@
       "SDU\\Hooks::onAfterDataUpdateComplete"
     ]
   },
-  "JobClasses": {
-    "RebuildDataJob": "SDU\\RebuildDataJob",
-    "PageUpdaterJob": "SDU\\PageUpdaterJob"
-  },
   "callback": "SDU\\Hooks::setup",
   "config": {
     "SDUProperty": "Semantic Dependency",
