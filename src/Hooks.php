@@ -3,7 +3,6 @@
 namespace SDU;
 
 use DeferredUpdates;
-use HTMLCacheUpdateJob;
 use JobQueueGroup;
 use SMW\Options;
 use SMW\Services\ServicesFactory as ApplicationFactory;
@@ -70,20 +69,21 @@ class Hooks
 
 
 		if (count($diffTable) > 0) {
-		wfDebugLog('SemanticDependencyUpdater', "[SDU] -----> Data changes detected");
+			wfDebugLog('SemanticDependencyUpdater', "[SDU] -----> Data changes detected");
 
-		foreach ($diffTable as $key => $value) {
-			if (strpos($key, 'smw_di') === 0 && is_array($value)) {
-				foreach ($value["insert"] as $insert) {
-					if ($insert["s_id"] == $smwSID) {
-						if ($insert["p_id"] != 506) // revision ID change is good, but must not trigger UpdateJob for semantic dependencies
-							$triggerSemanticDependencies = true;
-						break 2;
+			foreach ($diffTable as $key => $value) {
+				if (strpos($key, 'smw_di') === 0 && is_array($value)) {
+					foreach ($value["insert"] as $insert) {
+						if ($insert["s_id"] == $smwSID) {
+							if ($insert["p_id"] != 506) {
+								$triggerSemanticDependencies = true;
+								break 2;
+							} // revision ID change is good, but must not trigger UpdateJob for semantic dependencies
+						}
 					}
+					echo $key;
 				}
-				echo $key;
 			}
-		}
 		} else {
 			wfDebugLog('SemanticDependencyUpdater', "[SDU] <-- No semantic data changes detected");
 			return true;
@@ -121,7 +121,7 @@ class Hooks
 		}
 
 
-		self::rebuildData($wikiPageValues, $store);
+		self::rebuildData($triggerSemanticDependencies, $wikiPageValues, $subject);
 
 		return true;
 	}
@@ -165,45 +165,52 @@ class Hooks
 	 * @param SMWWikiPageValues[] $wikiPageValues
 	 * @param SMWStore $store
 	 */
-	public static function rebuildData($wikiPageValues, $store)
+	public static function rebuildData($triggerSemanticDependencies, $wikiPageValues, $subject)
 	{
 		global $wgSDUUseJobQueue;
 
 		if ($wgSDUUseJobQueue) {
 			$jobFactory = ApplicationFactory::getInstance()->newJobFactory();
 
-			$jobs = [];
-			foreach ($wikiPageValues as $wikiPageValue) {
-				$jobs[] = $jobFactory->newUpdateJob(
-					$wikiPageValue->getTitle(),
-					[
-						UpdateJob::FORCED_UPDATE => true,
-						'shallowUpdate' => false
-					]
-				);
-				$t = $wikiPageValue->getTitle();
-				$jobs[] = new HTMLCacheUpdateJob(
-					$wikiPageValue->getTitle(),
-					[]
-				);
-			// 	$jobs[] = new PageUpdaterJob( [
-			// 		'page' => $wikiPageValue
-			// 	] );
-			}
-			if ($jobs) {
-				JobQueueGroup::singleton()->lazyPush($jobs);
-			}
-		} else {
-			DeferredUpdates::addCallableUpdate(static function () use ($store, $pageString) {
-				wfDebugLog('SemanticDependencyUpdater', "[SDU] --------> [rebuildData] $pageString");
-				$maintenanceFactory = ApplicationFactory::getInstance()->newMaintenanceFactory();
+			if ($triggerSemanticDependencies) {
+				// DeferredUpdates::addCallableUpdate(static function () use ($jobFactory, $subject) {
+				// 	$job = $jobFactory->newUpdateJob(
+				// 		$subject->getTitle(),
+				// 		[
+				// 			UpdateJob::FORCED_UPDATE => true,
+				// 			'shallowUpdate' => false
+				// 		]
+				// 	);
+				// 	$job->run();
+				// });
 
-				$dataRebuilder = $maintenanceFactory->newDataRebuilder($store);
-				$dataRebuilder->setOptions(
-					new Options(['page' => $pageString])
-				);
-				$dataRebuilder->rebuild();
-			});
+				$jobs = [];
+
+				foreach ($wikiPageValues as $wikiPageValue) {
+					$jobs[] = $jobFactory->newUpdateJob(
+						$wikiPageValue->getTitle(),
+						[
+							UpdateJob::FORCED_UPDATE => true,
+							'shallowUpdate' => false
+						]
+					);
+				}
+				if ($jobs) {
+					JobQueueGroup::singleton()->lazyPush($jobs);
+				}
+			} else {
+				DeferredUpdates::addCallableUpdate(static function () use ($jobFactory, $wikiPageValues) {
+					$job = $jobFactory->newUpdateJob(
+						$wikiPageValues[0]->getTitle(),
+						[
+							UpdateJob::FORCED_UPDATE => true,
+							'shallowUpdate' => false
+						]
+					);
+					$job->run();
+				});
+			}
+
 		}
 
 	}
