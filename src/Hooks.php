@@ -75,7 +75,6 @@ class Hooks {
 							} // revision ID change is good, but must not trigger UpdateJob for semantic dependencies
 						}
 					}
-					echo $key;
 				}
 			}
 		} else {
