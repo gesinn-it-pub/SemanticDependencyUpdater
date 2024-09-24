@@ -7,9 +7,12 @@ use JobQueueGroup;
 use SMW\MediaWiki\Jobs\UpdateJob;
 use SMW\Services\ServicesFactory as ApplicationFactory;
 use SMWDIBlob;
+use SMWDIWikiPage;
 use SMWQueryProcessor;
 use SMWSemanticData;
 use SMWStore;
+use Title;
+use WikiPage;
 
 class Hooks {
 
@@ -21,6 +24,15 @@ class Hooks {
 		if ( !defined( 'SMW_VERSION' ) ) {
 			die( "ERROR: Semantic MediaWiki must be installed for Semantic Dependency Updater to run!" );
 		}
+	}
+
+	// Note: at the time SMW::SQLStore::BeforeDeleteSubjectComplete fires there is no data already
+	// so the PageDelete hook is used
+	public static function onPageDelete( $page, $deleter, string $reason, $status, bool $suppress ) {
+			$store = smwfGetStore();
+			$diWikiPage = SMWDIWikiPage::newFromTitle( Title::newFromDBkey( $page->getDBkey() ) );
+			$smwData = $store->getSemanticData( $diWikiPage );
+			self::onAfterDataUpdateComplete( $store, $smwData, null );
 	}
 
 	public static function onAfterDataUpdateComplete(
@@ -52,34 +64,38 @@ class Hooks {
 			return true;
 		}
 
-		$diffTable = $compositePropertyTableDiffIterator->getOrderedDiffByTable();
-		$smwSID = $compositePropertyTableDiffIterator->getSubject()->getId();
-		// SECOND CHECK: Have there been actual changes in the data? (Ignore internal SMW data!)
-		// TODO: Introduce an explicit list of Semantic Properties to watch ?
-		unset( $diffTable['smw_fpt_mdat'] ); // Ignore SMW's internal properties "smw_fpt_mdat"
+		if ( $compositePropertyTableDiffIterator !== null ) {
+			// SECOND CHECK: Have there been actual changes in the data? (Ignore internal SMW data!)
+			// (Skipping this check if we got here from a page deletion)
+			// TODO: Introduce an explicit list of Semantic Properties to watch ?
+			$diffTable = $compositePropertyTableDiffIterator->getOrderedDiffByTable();
+			$smwSID = $compositePropertyTableDiffIterator->getSubject()->getId();
 
-		// lets try first to check the data tables: https://www.semantic-mediawiki.org/wiki/Help:Database_schema
-		// if change, on pageID from Issue, that is not REvision ID, then trigger all changes
-		$triggerSemanticDependencies = false;
+			unset( $diffTable['smw_fpt_mdat'] ); // Ignore SMW's internal properties "smw_fpt_mdat"
 
-		if ( count( $diffTable ) > 0 ) {
-			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] -----> Data changes detected" );
+			// lets try first to check the data tables: https://www.semantic-mediawiki.org/wiki/Help:Database_schema
+			// if change, on pageID from Issue, that is not REvision ID, then trigger all changes
+			$triggerSemanticDependencies = false;
 
-			foreach ( $diffTable as $key => $value ) {
-				if ( strpos( $key, 'smw_di' ) === 0 && is_array( $value ) ) {
-					foreach ( $value["insert"] as $insert ) {
-						if ( $insert["s_id"] == $smwSID ) {
-							if ( $insert["p_id"] != 506 ) {
-								$triggerSemanticDependencies = true;
-								break 2;
-							} // revision ID change is good, but must not trigger UpdateJob for semantic dependencies
+			if ( count( $diffTable ) > 0 ) {
+				wfDebugLog( 'SemanticDependencyUpdater', "[SDU] -----> Data changes detected" );
+
+				foreach ( $diffTable as $key => $value ) {
+					if ( strpos( $key, 'smw_di' ) === 0 && is_array( $value ) ) {
+						foreach ( $value["insert"] as $insert ) {
+							if ( $insert["s_id"] == $smwSID ) {
+								if ( $insert["p_id"] != 506 ) {
+									$triggerSemanticDependencies = true;
+									break 2;
+								} // revision ID change is good, but must not trigger UpdateJob for semantic dependencies
+							}
 						}
 					}
 				}
+			} else {
+				wfDebugLog( 'SemanticDependencyUpdater', "[SDU] <-- No semantic data changes detected" );
+				return true;
 			}
-		} else {
-			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] <-- No semantic data changes detected" );
-			return true;
 		}
 
 		// THIRD CHECK: Has this page been already traversed more than twice?
