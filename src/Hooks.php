@@ -5,11 +5,11 @@ namespace SDU;
 use DeferredUpdates;
 use JobQueueGroup;
 use SMW\MediaWiki\Jobs\UpdateJob;
+use SMW\SemanticData;
 use SMW\Services\ServicesFactory as ApplicationFactory;
+use SMW\Store;
 use SMWDIBlob;
 use SMWQueryProcessor;
-use SMWSemanticData;
-use SMWStore;
 
 class Hooks {
 
@@ -24,8 +24,9 @@ class Hooks {
 	}
 
 	public static function onAfterDataUpdateComplete(
-		SMWStore $store, SMWSemanticData $newData,
-				 $compositePropertyTableDiffIterator
+		Store $store,
+		SemanticData $newData,
+		$compositePropertyTableDiffIterator
 	) {
 		global $wgSDUProperty;
 		global $wgSDUTraversed;
