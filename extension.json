@@ -1,34 +1,38 @@
 {
-  "name": "SemanticDependencyUpdater",
-  "version": "3.0.3",
-  "author": [
-    "Simon Heimler (gesinn.it GmbH & Co. KG)",
-    "Alexander Gesinn (gesinn.it GmbH & Co. KG)",
-    "Sebastian Schmid (gesinn.it GmbH & Co. KG)",
-    "Rcdeboer Remco C. de Boer"
-  ],
-  "url": "https://www.mediawiki.org/wiki/Extension:SemanticDependencyUpdater",
-  "description": "Monitors semantic data changes and updates dependent pages",
-  "license-name": "MIT",
-  "type": "semantic",
-  "requires": {
-    "MediaWiki": ">= 1.35",
-    "extensions": {
-      "SemanticMediaWiki": ">= 4.0.0"
-    }
-  },
-  "AutoloadNamespaces": {
-    "SDU\\": "src/"
-  },
-  "Hooks": {
-    "SMW::SQLStore::AfterDataUpdateComplete": [
-      "SDU\\Hooks::onAfterDataUpdateComplete"
-    ]
-  },
-  "callback": "SDU\\Hooks::setup",
-  "config": {
-    "SDUProperty": "Semantic Dependency",
-    "SDUUseJobQueue": true
-  },
-  "manifest_version": 1
+	"name": "SemanticDependencyUpdater",
+	"version": "3.0.3",
+	"author": [
+		"Simon Heimler (gesinn.it GmbH & Co. KG)",
+		"Alexander Gesinn (gesinn.it GmbH & Co. KG)",
+		"Sebastian Schmid (gesinn.it GmbH & Co. KG)",
+		"Rcdeboer Remco C. de Boer"
+	],
+	"url": "https://www.mediawiki.org/wiki/Extension:SemanticDependencyUpdater",
+	"description": "Monitors semantic data changes and updates dependent pages",
+	"license-name": "MIT",
+	"type": "semantic",
+	"requires": {
+		"MediaWiki": ">= 1.39",
+		"extensions": {
+			"SemanticMediaWiki": ">= 4.2.0"
+		}
+	},
+	"AutoloadNamespaces": {
+		"SDU\\": "src/"
+	},
+	"Hooks": {
+		"SMW::SQLStore::AfterDataUpdateComplete": [
+			"SDU\\Hooks::onAfterDataUpdateComplete"
+		]
+	},
+	"callback": "SDU\\Hooks::setup",
+	"config": {
+		"SDUProperty": {
+			"value": "Semantic Dependency"
+		},
+		"SDUUseJobQueue": {
+			"value": true
+		}
+	},
+	"manifest_version": 2
 }

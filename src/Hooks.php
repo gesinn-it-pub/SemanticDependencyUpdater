@@ -3,7 +3,7 @@
 namespace SDU;
 
 use DeferredUpdates;
-use JobQueueGroup;
+use MediaWiki\MediaWikiServices;
 use SMW\MediaWiki\Jobs\UpdateJob;
 use SMW\SemanticData;
 use SMW\Services\ServicesFactory as ApplicationFactory;
@@ -174,9 +174,10 @@ class Hooks {
 					);
 				}
 				if ( $jobs ) {
-					JobQueueGroup::singleton()->lazyPush( $jobs );
+					MediaWikiServices::getInstance()->getJobQueueGroup()->lazyPush( $jobs );
 				}
 			} else {
+				/** @phpstan-ignore class.notFound */
 				DeferredUpdates::addCallableUpdate( static function () use ( $jobFactory, $wikiPageValues ) {
 					$job = $jobFactory->newUpdateJob(
 						$wikiPageValues[0]->getTitle(),

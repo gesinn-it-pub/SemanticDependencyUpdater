@@ -5,11 +5,13 @@ parameters:
 	level: 1
 	paths:
 		- .
+	reportUnmatchedIgnoredErrors: false
 	excludePaths:
-		- vendor
-		- node_modules
-		- coverage
+		- vendor (?)
+		- node_modules (?)
+		- coverage (?)
 	scanDirectories:
 		- ../SemanticMediaWiki/includes
 		- ../SemanticMediaWiki/src
+		- ../SemanticMediaWiki/Tesa
 		- ../../includes
