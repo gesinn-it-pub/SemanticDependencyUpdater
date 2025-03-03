@@ -6,10 +6,11 @@ parameters:
 	paths:
 		- .
 	excludePaths:
-		- vendor
-		- node_modules
-		- coverage
+		- vendor (?)
+		- node_modules (?)
+		- coverage (?)
 	scanDirectories:
 		- ../SemanticMediaWiki/includes
 		- ../SemanticMediaWiki/src
+		- ../SemanticMediaWiki/Tesa
 		- ../../includes

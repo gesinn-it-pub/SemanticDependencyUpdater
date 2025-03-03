@@ -27,15 +27,15 @@ jobs:
           - mediawiki_version: '1.39'
             smw_version: dev-master
             php_version: 8.1
-            database_type: mysql
-            database_image: "mariadb:10"
+            database_type: postgres
+            database_image: "postgres:14"
             coverage: false
             experimental: false
           - mediawiki_version: '1.40'
             smw_version: dev-master
             php_version: 8.1
-            database_type: postgres
-            database_image: "postgres:14"
+            database_type: mysql
+            database_image: "mariadb:11.2"
             coverage: true
             experimental: false
           - mediawiki_version: '1.41'
@@ -63,6 +63,7 @@ jobs:
     env:
       MW_VERSION: ${{ matrix.mediawiki_version }}
       SMW_VERSION: ${{ matrix.smw_version }}
+      PHP_VERSION: ${{ matrix.php_version }}
       DB_TYPE: ${{ matrix.database_type }}
       DB_IMAGE: ${{ matrix.database_image }}
 

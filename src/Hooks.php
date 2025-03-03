@@ -177,6 +177,7 @@ class Hooks {
 					MediaWikiServices::getInstance()->getJobQueueGroup()->lazyPush( $jobs );
 				}
 			} else {
+				/** @phpstan-ignore class.notFound */
 				DeferredUpdates::addCallableUpdate( static function () use ( $jobFactory, $wikiPageValues ) {
 					$job = $jobFactory->newUpdateJob(
 						$wikiPageValues[0]->getTitle(),
