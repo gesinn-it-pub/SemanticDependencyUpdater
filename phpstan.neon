@@ -5,8 +5,7 @@ parameters:
 	level: 1
 	paths:
 		- .
-	ignoreErrors:
-		- identifier: class.notFound
+	reportUnmatchedIgnoredErrors: false
 	excludePaths:
 		- vendor (?)
 		- node_modules (?)
