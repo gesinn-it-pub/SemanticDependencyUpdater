@@ -4,6 +4,8 @@ use SDU\Hooks;
 
 /**
  * @group SemanticDependencyUpdater
+ * @group Database
+ *
  */
 class HooksTest extends MediaWikiIntegrationTestCase {
 
