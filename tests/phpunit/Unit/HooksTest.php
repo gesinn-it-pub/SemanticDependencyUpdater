@@ -5,7 +5,7 @@ use SDU\Hooks;
 /**
  * @group SemanticDependencyUpdater
  */
-class HooksTest extends \PHPUnit\Framework\TestCase {
+class HooksTest extends MediaWikiIntegrationTestCase {
 
 	protected $title;
 	protected $subject;
@@ -19,6 +19,7 @@ class HooksTest extends \PHPUnit\Framework\TestCase {
 		$this->title = Title::newFromText( 'PageA', 5010 );
 		$this->subject = new \SMW\DIWikiPage( $this->title->getDBkey(), $this->title->getNamespace() );
 		$this->semanticData = new \SMW\SemanticData( $this->subject );
+		/** @phpstan-ignore-next-line */
 		$this->mockStore = $this->createMock( \SMW\Store::class );
 		$this->mockStore->method( 'getQueryResult' )->willReturn( [] );
 
