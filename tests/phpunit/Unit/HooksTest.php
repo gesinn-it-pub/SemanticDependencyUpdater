@@ -1,96 +1,112 @@
 <?php
 
+namespace SDU\Tests;
+
+use MediaWikiIntegrationTestCase;
 use SDU\Hooks;
+use SMW\DIProperty;
+use SMW\SQLStore\ChangeOp\ChangeOp;
+use Title;
 
 /**
  * @group SemanticDependencyUpdater
  * @group Database
- *
  */
 class HooksTest extends MediaWikiIntegrationTestCase {
 
-	protected $title;
-	protected $subject;
-	protected $semanticData;
-	protected $mockStore;
+	private $jobPushed = false;
 
 	protected function setUp(): void {
 		parent::setUp();
 
-		/** @phpstan-ignore-next-line */
-		$this->title = Title::newFromText( 'PageA', 5010 );
-		$this->subject = new \SMW\DIWikiPage( $this->title->getDBkey(), $this->title->getNamespace() );
-		$this->semanticData = new \SMW\SemanticData( $this->subject );
-		/** @phpstan-ignore-next-line */
-		$this->mockStore = $this->createMock( \SMW\Store::class );
-		$this->mockStore->method( 'getQueryResult' )->willReturn( [] );
+		global $wgSDUProperty, $wgSDUTraversed, $wgSDUUseJobQueue;
 
-		$GLOBALS['smwgStore'] = $this->mockStore;
-	}
-
-	/**
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
-	 */
-	public function testOnAfterDataUpdateComplete_withDiff() {
-		global $wgSDUProperty, $wgSDUUseJobQueue, $wgSDUTraversed;
-
-		$wgSDUProperty = 'Semantic Dependency';
-		$wgSDUUseJobQueue = true;
-		$wgSDUTraversed = null;
-
-		$property = \SMW\DIProperty::newFromUserLabel( $wgSDUProperty );
-		$targetPage = new \SMW\DIWikiPage( 'PageB', NS_MAIN, '' );
-		$this->semanticData->addPropertyObjectValue( $property, $targetPage );
-
-		$diff = [
-			'smw_di' => [
-				'insert' => [
-					[ 's_id' => 123, 'p_id' => 999 ]
-				]
-			]
-		];
-		$changeOp = new \SMW\SQLStore\ChangeOp\ChangeOp( $this->subject, $diff );
-
-		$result = Hooks::onAfterDataUpdateComplete(
-			$this->mockStore,
-			$this->semanticData,
-			$changeOp
-		);
-
-		/** @phpstan-ignore-next-line */
-		$this->assertTrue( $result );
-	}
-
-	/**
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
-	 */
-	public function testOnAfterDataUpdateComplete_withNoDiff() {
-		global $wgSDUProperty, $wgSDUUseJobQueue, $wgSDUTraversed;
-
-		$wgSDUProperty = 'Semantic Dependency';
+		$wgSDUProperty = 'Depends On';
+		$wgSDUTraversed = [];
 		$wgSDUUseJobQueue = false;
-		$wgSDUTraversed = null;
 
-		$property = \SMW\DIProperty::newFromUserLabel( $wgSDUProperty );
-		$targetPage = new \SMW\DIWikiPage( 'PageB', NS_MAIN, '' );
-		$this->semanticData->addPropertyObjectValue( $property, $targetPage );
-
-		$diff = [
-			'smw_di' => [
-				'insert' => [],
-				'delete' => []
-			]
-		];
-		$changeOp = new \SMW\SQLStore\ChangeOp\ChangeOp( $this->subject, $diff );
-
-		$result = Hooks::onAfterDataUpdateComplete(
-			$this->mockStore,
-			$this->semanticData,
-			$changeOp
-		);
-
-		/** @phpstan-ignore-next-line */
-		$this->assertTrue( $result );
+		Hooks::setup();
 	}
 
+	private function makeSemanticData( $title, array $props = [] ) {
+		$subject = new \SMW\DIWikiPage( $title->getText(), $title->getNamespace(), '' );
+		$semanticData = new \SMW\SemanticData( $subject );
+
+		foreach ( $props as $propName => $values ) {
+			$property = DIProperty::newFromUserLabel( $propName );
+			foreach ( $values as $value ) {
+				$semanticData->addPropertyObjectValue( $property, new \SMWDIBlob( $value ) );
+			}
+		}
+
+		return $semanticData;
+	}
+
+	/**
+	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 */
+	public function testNoPropertyDoesNotTriggerUpdate() {
+		/** @phpstan-ignore class.notFound */
+		$title = Title::newFromText( 'PageWithoutSDUProperty', NS_MAIN );
+		$this->editPage( $title, 'Test content' );
+
+		$data = $this->makeSemanticData( $title );
+		$mockDiff = $this->createMock( ChangeOp::class );
+		$mockDiff->method( 'getOrderedDiffByTable' )->willReturn( [] );
+		$mockDiff->method( 'getSubject' )->willReturn( new \SMW\DIWikiPage( $title->getText(), $title->getNamespace(), '' ) );
+
+		$this->assertTrue(
+			Hooks::onAfterDataUpdateComplete( smwfGetStore(), $data, $mockDiff )
+		);
+	}
+
+	/**
+	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 */
+	public function testNoDataChangeDoesNotTriggerUpdate() {
+		global $wgSDUProperty;
+
+		/** @phpstan-ignore class.notFound */
+		$title = Title::newFromText( 'PageWithSDUProperty', NS_MAIN );
+		$this->editPage( $title, '[[Depends On::TestPage]]' );
+
+		$data = $this->makeSemanticData( $title, [ $wgSDUProperty => [ 'TestPage' ] ] );
+		$mockDiff = $this->createMock( ChangeOp::class );
+		$mockDiff->method( 'getOrderedDiffByTable' )->willReturn( [] );
+		$mockDiff->method( 'getSubject' )->willReturn( new \SMW\DIWikiPage( $title->getText(), $title->getNamespace(), '' ) );
+
+		$this->assertTrue(
+			Hooks::onAfterDataUpdateComplete( smwfGetStore(), $data, $mockDiff )
+		);
+	}
+
+	/**
+	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 */
+	public function testSemanticChangeTriggersUpdate() {
+		global $wgSDUProperty;
+
+		/** @phpstan-ignore class.notFound */
+		$title = Title::newFromText( 'PageWithSDUProperty', NS_MAIN );
+		$this->editPage( $title, '[[Depends On::PageB]]' );
+
+		$data = $this->makeSemanticData( $title, [ $wgSDUProperty => [ 'PageB' ] ] );
+
+		$subject = new \SMW\DIWikiPage( $title->getText(), $title->getNamespace(), '' );
+
+		$mockDiff = $this->createMock( ChangeOp::class );
+		$mockDiff->method( 'getOrderedDiffByTable' )->willReturn( [
+			'smw_di_blob' => [
+				'insert' => [ [
+					's_id' => $subject->getId(),
+					'p_id' => 123
+				] ]
+			]
+		] );
+		$mockDiff->method( 'getSubject' )->willReturn( $subject );
+
+		$this->assertTrue(
+			Hooks::onAfterDataUpdateComplete( smwfGetStore(), $data, $mockDiff )
+		);
+	}
 }

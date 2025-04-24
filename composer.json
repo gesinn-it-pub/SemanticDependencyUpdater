@@ -15,6 +15,11 @@
 		"phpstan/phpstan": "^2.0",
 		"vimeo/psalm": "^4.23"
 	},
+	"autoload": {
+		"psr-4": {
+			"SDU\\": "src/"
+		}
+	},
 	"scripts": {
 		"test": [
 			"@analyze",
