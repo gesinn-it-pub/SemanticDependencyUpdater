@@ -22,7 +22,7 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 		global $wgSDUProperty, $wgSDUTraversed, $wgSDUUseJobQueue;
 
 		$wgSDUProperty = 'Depends On';
-		$wgSDUTraversed = [];
+		$wgSDUTraversed = null;
 		$wgSDUUseJobQueue = false;
 
 		Hooks::setup();
@@ -44,6 +44,8 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 * @covers \SDU\Hooks::updatePagesMatchingQuery
+	 * @covers \SDU\Hooks::rebuildData
 	 */
 	public function testNoPropertyDoesNotTriggerUpdate() {
 		/** @phpstan-ignore class.notFound */
@@ -62,6 +64,8 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 * @covers \SDU\Hooks::updatePagesMatchingQuery
+	 * @covers \SDU\Hooks::rebuildData
 	 */
 	public function testNoDataChangeDoesNotTriggerUpdate() {
 		global $wgSDUProperty;
@@ -82,6 +86,8 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 * @covers \SDU\Hooks::updatePagesMatchingQuery
+	 * @covers \SDU\Hooks::rebuildData
 	 */
 	public function testSemanticChangeTriggersUpdate() {
 		global $wgSDUProperty;
@@ -100,6 +106,76 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 				'insert' => [ [
 					's_id' => $subject->getId(),
 					'p_id' => 123
+				] ]
+			]
+		] );
+		$mockDiff->method( 'getSubject' )->willReturn( $subject );
+
+		$this->assertTrue(
+			Hooks::onAfterDataUpdateComplete( smwfGetStore(), $data, $mockDiff )
+		);
+	}
+
+	/**
+	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 * @covers \SDU\Hooks::updatePagesMatchingQuery
+	 * @covers \SDU\Hooks::rebuildData
+	 */
+	public function testTriggerSemanticDependenciesSetToFalse() {
+		global $wgSDUTraversed;
+		global $wgSDUProperty;
+
+		$id = 'TestID';
+		$wgSDUTraversed[$id] = 3;
+
+		/** @phpstan-ignore class.notFound */
+		$title = Title::newFromText( 'PageWithSDUProperty', NS_MAIN );
+		$this->editPage( $title, '[[Depends On::PageB]]' );
+
+		$data = $this->makeSemanticData( $title, [ $wgSDUProperty => [ 'PageB' ] ] );
+		$subject = new \SMW\DIWikiPage( $title->getText(), $title->getNamespace(), '' );
+
+		$mockDiff = $this->createMock( ChangeOp::class );
+		$mockDiff->method( 'getOrderedDiffByTable' )->willReturn( [
+			'smw_di_blob' => [
+				'insert' => [ [
+					's_id' => $subject->getId(),
+					'p_id' => 506
+				] ]
+			]
+		] );
+		$mockDiff->method( 'getSubject' )->willReturn( $subject );
+
+		$this->assertTrue(
+			Hooks::onAfterDataUpdateComplete( smwfGetStore(), $data, $mockDiff )
+		);
+	}
+
+	/**
+	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 * @covers \SDU\Hooks::updatePagesMatchingQuery
+	 * @covers \SDU\Hooks::rebuildData
+	 */
+	public function testUpdaterAlreadyTraversed() {
+		global $wgSDUTraversed;
+		global $wgSDUProperty;
+
+		$id = 'PageWithSDUProperty';
+		$wgSDUTraversed[$id] = 3;
+
+		/** @phpstan-ignore class.notFound */
+		$title = Title::newFromText( 'PageWithSDUProperty', NS_MAIN );
+		$this->editPage( $title, '[[Depends On::PageB]]' );
+
+		$data = $this->makeSemanticData( $title, [ $wgSDUProperty => [ 'PageB' ] ] );
+		$subject = new \SMW\DIWikiPage( $title->getText(), $title->getNamespace(), '' );
+
+		$mockDiff = $this->createMock( ChangeOp::class );
+		$mockDiff->method( 'getOrderedDiffByTable' )->willReturn( [
+			'smw_di_blob' => [
+				'insert' => [ [
+					's_id' => $subject->getId(),
+					'p_id' => 506
 				] ]
 			]
 		] );
