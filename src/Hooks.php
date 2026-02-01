@@ -120,13 +120,16 @@ class Hooks {
 							"[SDU] INSERT detected: table={$key} s_id={$insert["s_id"]} p_id={$insert["p_id"]}"
 						);
 
-						if ( $insert["s_id"] == $smwSID ) {
-							if ( $insert["p_id"] != 506 ) {
-								$triggerSemanticDependencies = true;
-								break 2;
-							}
-							// revision ID change is good, but must not trigger UpdateJob for semantic dependencies
+						// SMW may record semantic changes in subsubjects/subobjects (different s_id values).
+						// The following main-subject restriction is disabled to also trigger updates on subobject changes.
+
+						// if ( $insert["s_id"] == $smwSID ) {
+						if ( $insert["p_id"] != 506 ) {
+							$triggerSemanticDependencies = true;
+							break 2;
 						}
+						// }
+
 					}
 				}
 			}
