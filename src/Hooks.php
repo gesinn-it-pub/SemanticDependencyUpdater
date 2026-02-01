@@ -105,31 +105,29 @@ class Hooks {
 
 			foreach ( $diffTable as $key => $value ) {
 
-				if ( strpos( $key, 'smw_di' ) === 0 && is_array( $value ) ) {
+				if ( strpos( $key, 'smw_di' ) !== 0 || !is_array( $value ) ) {
+					continue;
+				}
 
-					// Defensive: not every diff entry has inserts
-					if ( !isset( $value["insert"] ) || !is_array( $value["insert"] ) ) {
+				// Check both inserts and deletes in the diffTable
+				foreach ( [ 'insert', 'delete' ] as $op ) {
+
+					if ( !isset( $value[$op] ) || !is_array( $value[$op] ) ) {
 						continue;
 					}
 
-					foreach ( $value["insert"] as $insert ) {
+					foreach ( $value[$op] as $change ) {
 
-						// DEBUG: log each insert detected
 						wfDebugLog(
 							'SemanticDependencyUpdater',
-							"[SDU] INSERT detected: table={$key} s_id={$insert["s_id"]} p_id={$insert["p_id"]}"
+							"[SDU] " . strtoupper( $op ) . " detected: table={$key} s_id={$change["s_id"]} p_id={$change["p_id"]}"
 						);
 
-						// SMW may record semantic changes in subsubjects/subobjects (different s_id values).
-						// The following main-subject restriction is disabled to also trigger updates on subobject changes.
-
-						// if ( $insert["s_id"] == $smwSID ) {
-						if ( $insert["p_id"] != 506 ) {
+						// Trigger dependency updates on any semantic change except pure revision metadata updates
+						if ( $change["p_id"] != 506 ) {
 							$triggerSemanticDependencies = true;
-							break 2;
+							break 3;
 						}
-						// }
-
 					}
 				}
 			}
