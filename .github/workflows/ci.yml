@@ -11,7 +11,7 @@ jobs:
 
   test:
 
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     continue-on-error: ${{ matrix.experimental }}
 
     strategy:
@@ -21,39 +21,11 @@ jobs:
             smw_version: 5.1.0
             php_version: 8.1
             database_type: mysql
-            database_image: "mariadb:10"
-            coverage: false
-            experimental: false
-          - mediawiki_version: '1.39'
-            smw_version: 5.1.0
-            php_version: 8.1
-            database_type: postgres
-            database_image: "postgres:14"
-            coverage: false
-            experimental: false
-          - mediawiki_version: '1.40'
-            smw_version: 5.1.0
-            php_version: 8.1
-            database_type: mysql
-            database_image: "mariadb:11.2"
-            coverage: true
-            experimental: false
-          - mediawiki_version: '1.41'
-            smw_version: 5.1.0
-            php_version: 8.1
-            database_type: mysql
-            database_image: "mariadb:11.2"
-            coverage: false
-            experimental: false
-          - mediawiki_version: '1.42'
-            smw_version: 5.1.0
-            php_version: 8.1
-            database_type: mysql
             database_image: "mariadb:11.2"
             coverage: false
             experimental: false
           - mediawiki_version: '1.43'
-            smw_version: dev-master
+            smw_version: 6.0.1
             php_version: 8.1
             database_type: mysql
             database_image: "mariadb:11.2"
@@ -70,7 +42,7 @@ jobs:
       
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
                    
@@ -86,7 +58,7 @@ jobs:
         if: matrix.coverage == true
 
       - name: Upload code coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/php/coverage.xml
