@@ -11,13 +11,13 @@ endif
 EXTENSION=SemanticDependencyUpdater
 
 # docker images
-MW_VERSION?=1.39
+MW_VERSION?=1.43
 PHP_VERSION?=8.1
 DB_TYPE?=mysql
 DB_IMAGE?="mariadb:10"
 
 # extensions
-SMW_VERSION?=dev-master
+SMW_VERSION?=6.0.1
 
 # composer
 # Enables "composer update" inside of extension
