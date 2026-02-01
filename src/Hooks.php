@@ -36,61 +36,119 @@ class Hooks {
 		}
 
 		$wgSDUProperty = str_replace( ' ', '_', $wgSDUProperty );
+
 		$subject = $newData->getSubject();
 		$title = $subject->getTitle();
+
 		if ( $title == null ) {
 			return true;
 		}
 
 		$id = $title->getPrefixedDBKey();
 
+		// DEBUG: Subject context
+		wfDebugLog(
+			'SemanticDependencyUpdater',
+			"[SDU] Subject={$id} SMW-SID=" . $subject->getId()
+		);
+
 		wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --> " . $title );
 
-		// FIRST CHECK: Does the page data contain a $wgSDUProperty semantic property ?
+		// FIRST CHECK: Does the page data contain a $wgSDUProperty semantic property?
 		$properties = $newData->getProperties();
+
+		// DEBUG: list all properties found
+		wfDebugLog(
+			'SemanticDependencyUpdater',
+			"[SDU] Properties found: " . implode( ", ", array_keys( $properties ) )
+		);
+
 		if ( !isset( $properties[$wgSDUProperty] ) ) {
-			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] <-- No SDU property found" );
+			wfDebugLog(
+				'SemanticDependencyUpdater',
+				"[SDU] <-- No SDU property '{$wgSDUProperty}' found"
+			);
 			return true;
 		}
 
 		$diffTable = $compositePropertyTableDiffIterator->getOrderedDiffByTable();
 		$smwSID = $compositePropertyTableDiffIterator->getSubject()->getId();
-		// SECOND CHECK: Have there been actual changes in the data? (Ignore internal SMW data!)
-		// TODO: Introduce an explicit list of Semantic Properties to watch ?
-		unset( $diffTable['smw_fpt_mdat'] ); // Ignore SMW's internal properties "smw_fpt_mdat"
 
-		// lets try first to check the data tables: https://www.semantic-mediawiki.org/wiki/Help:Database_schema
-		// if change, on pageID from Issue, that is not REvision ID, then trigger all changes
+		// DEBUG: diff table keys before filtering
+		wfDebugLog(
+			'SemanticDependencyUpdater',
+			"[SDU] Diff tables: " . implode( ", ", array_keys( $diffTable ) )
+		);
+
+		// SECOND CHECK: Have there been actual changes in the data?
+		// Ignore SMW's internal properties "smw_fpt_mdat"
+		unset( $diffTable['smw_fpt_mdat'] );
+
+		// DEBUG: diff table keys after filtering
+		wfDebugLog(
+			'SemanticDependencyUpdater',
+			"[SDU] Diff tables after filtering: " . implode( ", ", array_keys( $diffTable ) )
+		);
+
 		$triggerSemanticDependencies = false;
 
 		if ( count( $diffTable ) > 0 ) {
+
 			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] -----> Data changes detected" );
 
+			// DEBUG: start scanning inserts
+			wfDebugLog(
+				'SemanticDependencyUpdater',
+				"[SDU] Scanning diffTable for inserts..."
+			);
+
 			foreach ( $diffTable as $key => $value ) {
+
 				if ( strpos( $key, 'smw_di' ) === 0 && is_array( $value ) ) {
+
+					// Defensive: not every diff entry has inserts
+					if ( !isset( $value["insert"] ) || !is_array( $value["insert"] ) ) {
+						continue;
+					}
+
 					foreach ( $value["insert"] as $insert ) {
+
+						// DEBUG: log each insert detected
+						wfDebugLog(
+							'SemanticDependencyUpdater',
+							"[SDU] INSERT detected: table={$key} s_id={$insert["s_id"]} p_id={$insert["p_id"]}"
+						);
+
 						if ( $insert["s_id"] == $smwSID ) {
 							if ( $insert["p_id"] != 506 ) {
 								$triggerSemanticDependencies = true;
 								break 2;
-							} // revision ID change is good, but must not trigger UpdateJob for semantic dependencies
+							}
+							// revision ID change is good, but must not trigger UpdateJob for semantic dependencies
 						}
 					}
 				}
 			}
+
+			// DEBUG: final trigger status
+			wfDebugLog(
+				'SemanticDependencyUpdater',
+				"[SDU] triggerSemanticDependencies=" . ( $triggerSemanticDependencies ? "true" : "false" )
+			);
+
 		} else {
+
 			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] <-- No semantic data changes detected" );
 			return true;
 		}
 
 		// THIRD CHECK: Has this page been already traversed more than twice?
-		// This should only be the case when SMW errors occur.
-		// In that case, the diffTable contains everything and SDU can't know if changes happened
 		if ( array_key_exists( $id, $wgSDUTraversed ) ) {
 			$wgSDUTraversed[$id] = $wgSDUTraversed[$id] + 1;
 		} else {
 			$wgSDUTraversed[$id] = 1;
 		}
+
 		if ( $wgSDUTraversed[$id] > 2 ) {
 			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] <-- Already traversed" );
 			return true;
@@ -98,19 +156,41 @@ class Hooks {
 
 		// QUERY AND UPDATE DEPENDENCIES
 
-		// SMW\SemanticData $newData
-		// SMWDataItem[] $dataItem
 		$wikiPageValues = [];
+
 		if ( $triggerSemanticDependencies ) {
+
 			$dataItem = $newData->getPropertyValues( $properties[$wgSDUProperty] );
+
 			if ( $dataItem != null ) {
+
+				// DEBUG: dependency value count
+				wfDebugLog(
+					'SemanticDependencyUpdater',
+					"[SDU] Dependency values count=" . count( $dataItem )
+				);
+
 				foreach ( $dataItem as $valueItem ) {
+
 					if ( $valueItem instanceof SMWDIBlob && $valueItem->getString() != $id ) {
-						$wikiPageValues = array_merge( $wikiPageValues, self::updatePagesMatchingQuery( $valueItem->getSerialization() ) );
+
+						// DEBUG: raw dependency query fragment
+						wfDebugLog(
+							'SemanticDependencyUpdater',
+							"[SDU] Dependency raw value=" . $valueItem->getSerialization()
+						);
+
+						$wikiPageValues = array_merge(
+							$wikiPageValues,
+							self::updatePagesMatchingQuery( $valueItem->getSerialization() )
+						);
 					}
 				}
 			}
+
 		} else {
+
+			// No dependency trigger → only rebuild the current subject
 			$wikiPageValues = [ $subject ];
 		}
 
@@ -142,22 +222,35 @@ class Hooks {
 		$params = [
 			'limit' => 10000,
 		];
+
 		$processedParams = SMWQueryProcessor::getProcessedParams( $params );
-		$query =
-			SMWQueryProcessor::createQuery( "[[$queryString]]", $processedParams, SMWQueryProcessor::SPECIAL_PAGE );
+
+		$query = SMWQueryProcessor::createQuery(
+			"[[$queryString]]",
+			$processedParams,
+			SMWQueryProcessor::SPECIAL_PAGE
+		);
+
 		$result = $store->getQueryResult( $query );
 		$wikiPageValues = $result->getResults();
+
+		// DEBUG: query match count
+		wfDebugLog(
+			'SemanticDependencyUpdater',
+			"[SDU] Query matched " . count( $wikiPageValues ) . " pages"
+		);
 
 		return $wikiPageValues;
 	}
 
 	/**
-	 * Rebuilds data of the given wikipages to regenerate semantic attrubutes and re-run queries
+	 * Rebuilds data of the given wikipages to regenerate semantic attributes and re-run queries
 	 */
 	public static function rebuildData( $triggerSemanticDependencies, $wikiPageValues, $subject ) {
 		global $wgSDUUseJobQueue;
 
 		if ( $wgSDUUseJobQueue ) {
+
 			$jobFactory = ApplicationFactory::getInstance()->newJobFactory();
 
 			if ( $triggerSemanticDependencies ) {
@@ -165,6 +258,7 @@ class Hooks {
 				$jobs = [];
 
 				foreach ( $wikiPageValues as $wikiPageValue ) {
+
 					$jobs[] = $jobFactory->newUpdateJob(
 						$wikiPageValue->getTitle(),
 						[
@@ -173,23 +267,43 @@ class Hooks {
 						]
 					);
 				}
-				if ( $jobs ) {
-					MediaWikiServices::getInstance()->getJobQueueGroup()->lazyPush( $jobs );
-				}
-			} else {
-				/** @phpstan-ignore class.notFound */
-				DeferredUpdates::addCallableUpdate( static function () use ( $jobFactory, $wikiPageValues ) {
-					$job = $jobFactory->newUpdateJob(
-						$wikiPageValues[0]->getTitle(),
-						[
-							UpdateJob::FORCED_UPDATE => true,
-							'shallowUpdate' => false
-						]
-					);
-					$job->run();
-				} );
-			}
 
+				if ( $jobs ) {
+
+					// DEBUG: job push count
+					wfDebugLog(
+						'SemanticDependencyUpdater',
+						"[SDU] Pushing " . count( $jobs ) . " UpdateJobs"
+					);
+
+					MediaWikiServices::getInstance()
+						->getJobQueueGroup()
+						->lazyPush( $jobs );
+				}
+
+			} else {
+
+				// DEBUG: single job run
+				wfDebugLog(
+					'SemanticDependencyUpdater',
+					"[SDU] Running single UpdateJob immediately (no dependency trigger)"
+				);
+
+				/** @phpstan-ignore class.notFound */
+				DeferredUpdates::addCallableUpdate(
+					static function () use ( $jobFactory, $wikiPageValues ) {
+						$job = $jobFactory->newUpdateJob(
+							$wikiPageValues[0]->getTitle(),
+							[
+								UpdateJob::FORCED_UPDATE => true,
+								'shallowUpdate' => false
+							]
+						);
+
+						$job->run();
+					}
+				);
+			}
 		}
 	}
 
