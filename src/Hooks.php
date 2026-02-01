@@ -13,6 +13,20 @@ use SMWQueryProcessor;
 
 class Hooks {
 
+	/**
+	 * Wrapper for debug logging.
+	 * Only logs if the SemanticDependencyUpdater debug group is enabled.
+	 */
+	private static function debugLog( string $message ): void {
+		global $wgDebugLogGroups;
+
+		if ( !isset( $wgDebugLogGroups['SemanticDependencyUpdater'] ) ) {
+			return;
+		}
+
+		wfDebugLog( 'SemanticDependencyUpdater', $message );
+	}
+
 	public static function setup() {
 		if ( !defined( 'MEDIAWIKI' ) ) {
 			die();
@@ -47,36 +61,31 @@ class Hooks {
 		$id = $title->getPrefixedDBKey();
 
 		// DEBUG: Subject context
-		wfDebugLog(
-			'SemanticDependencyUpdater',
+		self::debugLog(
 			"[SDU] Subject={$id} SMW-SID=" . $subject->getId()
 		);
 
-		wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --> " . $title );
+		self::debugLog( "[SDU] --> " . $title );
 
 		// FIRST CHECK: Does the page data contain a $wgSDUProperty semantic property?
 		$properties = $newData->getProperties();
 
 		// DEBUG: list all properties found
-		wfDebugLog(
-			'SemanticDependencyUpdater',
+		self::debugLog(
 			"[SDU] Properties found: " . implode( ", ", array_keys( $properties ) )
 		);
 
 		if ( !isset( $properties[$wgSDUProperty] ) ) {
-			wfDebugLog(
-				'SemanticDependencyUpdater',
+			self::debugLog(
 				"[SDU] <-- No SDU property '{$wgSDUProperty}' found"
 			);
 			return true;
 		}
 
 		$diffTable = $compositePropertyTableDiffIterator->getOrderedDiffByTable();
-		$smwSID = $compositePropertyTableDiffIterator->getSubject()->getId();
 
 		// DEBUG: diff table keys before filtering
-		wfDebugLog(
-			'SemanticDependencyUpdater',
+		self::debugLog(
 			"[SDU] Diff tables: " . implode( ", ", array_keys( $diffTable ) )
 		);
 
@@ -85,62 +94,59 @@ class Hooks {
 		unset( $diffTable['smw_fpt_mdat'] );
 
 		// DEBUG: diff table keys after filtering
-		wfDebugLog(
-			'SemanticDependencyUpdater',
+		self::debugLog(
 			"[SDU] Diff tables after filtering: " . implode( ", ", array_keys( $diffTable ) )
 		);
 
+		// Trigger flag
 		$triggerSemanticDependencies = false;
 
 		if ( count( $diffTable ) > 0 ) {
 
-			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] -----> Data changes detected" );
+			self::debugLog( "[SDU] -----> Data changes detected" );
 
-			// DEBUG: start scanning inserts
-			wfDebugLog(
-				'SemanticDependencyUpdater',
-				"[SDU] Scanning diffTable for inserts..."
+			// DEBUG: start scanning changes
+			self::debugLog(
+				"[SDU] Scanning diffTable for semantic changes..."
 			);
 
 			foreach ( $diffTable as $key => $value ) {
 
-				if ( strpos( $key, 'smw_di' ) === 0 && is_array( $value ) ) {
+				if ( strpos( $key, 'smw_di' ) !== 0 || !is_array( $value ) ) {
+					continue;
+				}
 
-					// Defensive: not every diff entry has inserts
-					if ( !isset( $value["insert"] ) || !is_array( $value["insert"] ) ) {
+				// Check both inserts and deletes in the diffTable
+				foreach ( [ 'insert', 'delete' ] as $op ) {
+
+					if ( !isset( $value[$op] ) || !is_array( $value[$op] ) ) {
 						continue;
 					}
 
-					foreach ( $value["insert"] as $insert ) {
+					foreach ( $value[$op] as $change ) {
 
-						// DEBUG: log each insert detected
-						wfDebugLog(
-							'SemanticDependencyUpdater',
-							"[SDU] INSERT detected: table={$key} s_id={$insert["s_id"]} p_id={$insert["p_id"]}"
+						self::debugLog(
+							"[SDU] " . strtoupper( $op ) .
+							" detected: table={$key} s_id={$change["s_id"]} p_id={$change["p_id"]}"
 						);
 
-						// SMW may record semantic changes in subsubjects/subobjects (different s_id values).
-						// The following main-subject restriction is disabled to also trigger updates on subobject changes.
-
-						// if ( $insert["s_id"] == $smwSID ) {
-						if ( $insert["p_id"] != 506 ) {
+						// Trigger dependency updates on any semantic change except pure revision metadata updates
+						if ( $change["p_id"] != 506 ) {
 							$triggerSemanticDependencies = true;
-							break 2;
+							break 3;
 						}
-						// }
 					}
 				}
 			}
 
 			// DEBUG: final trigger status
-			wfDebugLog(
-				'SemanticDependencyUpdater',
+			self::debugLog(
 				"[SDU] triggerSemanticDependencies=" . ( $triggerSemanticDependencies ? "true" : "false" )
 			);
 
 		} else {
 
-			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] <-- No semantic data changes detected" );
+			self::debugLog( "[SDU] <-- No semantic data changes detected" );
 			return true;
 		}
 
@@ -152,7 +158,7 @@ class Hooks {
 		}
 
 		if ( $wgSDUTraversed[$id] > 2 ) {
-			wfDebugLog( 'SemanticDependencyUpdater', "[SDU] <-- Already traversed" );
+			self::debugLog( "[SDU] <-- Already traversed" );
 			return true;
 		}
 
@@ -167,8 +173,7 @@ class Hooks {
 			if ( $dataItem != null ) {
 
 				// DEBUG: dependency value count
-				wfDebugLog(
-					'SemanticDependencyUpdater',
+				self::debugLog(
 					"[SDU] Dependency values count=" . count( $dataItem )
 				);
 
@@ -177,8 +182,7 @@ class Hooks {
 					if ( $valueItem instanceof SMWDIBlob && $valueItem->getString() != $id ) {
 
 						// DEBUG: raw dependency query fragment
-						wfDebugLog(
-							'SemanticDependencyUpdater',
+						self::debugLog(
 							"[SDU] Dependency raw value=" . $valueItem->getSerialization()
 						);
 
@@ -217,7 +221,7 @@ class Hooks {
 			$queryString = str_replace( $sfgListSeparator, ' || ', $queryString );
 		}
 
-		wfDebugLog( 'SemanticDependencyUpdater', "[SDU] --------> [[$queryString]]" );
+		self::debugLog( "[SDU] --------> [[$queryString]]" );
 
 		$store = smwfGetStore();
 
@@ -237,8 +241,7 @@ class Hooks {
 		$wikiPageValues = $result->getResults();
 
 		// DEBUG: query match count
-		wfDebugLog(
-			'SemanticDependencyUpdater',
+		self::debugLog(
 			"[SDU] Query matched " . count( $wikiPageValues ) . " pages"
 		);
 
@@ -273,8 +276,7 @@ class Hooks {
 				if ( $jobs ) {
 
 					// DEBUG: job push count
-					wfDebugLog(
-						'SemanticDependencyUpdater',
+					self::debugLog(
 						"[SDU] Pushing " . count( $jobs ) . " UpdateJobs"
 					);
 
@@ -286,8 +288,7 @@ class Hooks {
 			} else {
 
 				// DEBUG: single job run
-				wfDebugLog(
-					'SemanticDependencyUpdater',
+				self::debugLog(
 					"[SDU] Running single UpdateJob immediately (no dependency trigger)"
 				);
 
