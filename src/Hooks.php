@@ -4,6 +4,7 @@ namespace SDU;
 
 use DeferredUpdates;
 use MediaWiki\MediaWikiServices;
+use SMW\DIWikiPage;
 use SMW\MediaWiki\Jobs\UpdateJob;
 use SMW\SemanticData;
 use SMW\Services\ServicesFactory as ApplicationFactory;
@@ -37,6 +38,102 @@ class Hooks {
 		}
 	}
 
+	/**
+	 * Trigger dependency updates when a page is deleted.
+	 * SMW semantic properties are already gone in AfterDataUpdateComplete.
+	 */
+	public static function onPageDelete( $wikiPage, $user, $reason, $pageId ) {
+		self::debugLog(
+			"[SDU] PageDeleteComplete detected, loading semantic data before removal"
+		);
+
+		$title = $wikiPage->getTitle();
+
+		if ( $title == null ) {
+			return true;
+		}
+
+		$store = smwfGetStore();
+
+		$diWikiPage = DIWikiPage::newFromTitle( $title );
+
+		$semanticData = $store->getSemanticData( $diWikiPage );
+
+		if ( $semanticData == null ) {
+			self::debugLog(
+				"[SDU] <-- No semantic data available during delete"
+			);
+			return true;
+		}
+
+		// Trigger dependency rebuild without diff iterator
+		self::runDependencyUpdateOnDelete( $store, $semanticData );
+
+		return true;
+	}
+
+	/**
+	 * Runs dependency updates for deleted pages.
+	 * Always triggers because the page is being removed.
+	 */
+	private static function runDependencyUpdateOnDelete(
+		Store $store,
+		SemanticData $semanticData
+	): void {
+		global $wgSDUProperty;
+
+		$wgSDUProperty = str_replace( ' ', '_', $wgSDUProperty );
+
+		$subject = $semanticData->getSubject();
+		$title = $subject->getTitle();
+
+		if ( $title == null ) {
+			return;
+		}
+
+		self::debugLog(
+			"[SDU] <-- Triggering dependency updates, page was deleted: " . $title
+		);
+
+		$properties = $semanticData->getProperties();
+
+		if ( !isset( $properties[$wgSDUProperty] ) ) {
+			self::debugLog(
+				"[SDU] <-- Deleted page had no SDU property '{$wgSDUProperty}'"
+			);
+			return;
+		}
+
+		$dataItem = $semanticData->getPropertyValues( $properties[$wgSDUProperty] );
+
+		if ( $dataItem == null ) {
+			return;
+		}
+
+		self::debugLog(
+			"[SDU] Dependency values count=" . count( $dataItem )
+		);
+
+		$wikiPageValues = [];
+
+		foreach ( $dataItem as $valueItem ) {
+
+			if ( $valueItem instanceof SMWDIBlob ) {
+
+				self::debugLog(
+					"[SDU] Dependency raw value=" . $valueItem->getSerialization()
+				);
+
+				$wikiPageValues = array_merge(
+					$wikiPageValues,
+					self::updatePagesMatchingQuery( $valueItem->getSerialization() )
+				);
+			}
+		}
+
+		self::rebuildData( true, $wikiPageValues, $subject );
+	}
+
 	public static function onAfterDataUpdateComplete(
 		Store $store,
 		SemanticData $newData,
@@ -60,17 +157,14 @@ class Hooks {
 
 		$id = $title->getPrefixedDBKey();
 
-		// DEBUG: Subject context
 		self::debugLog(
 			"[SDU] Subject={$id} SMW-SID=" . $subject->getId()
 		);
 
 		self::debugLog( "[SDU] --> " . $title );
 
-		// FIRST CHECK: Does the page data contain a $wgSDUProperty semantic property?
 		$properties = $newData->getProperties();
 
-		// DEBUG: list all properties found
 		self::debugLog(
 			"[SDU] Properties found: " . implode( ", ", array_keys( $properties ) )
 		);
@@ -84,28 +178,22 @@ class Hooks {
 
 		$diffTable = $compositePropertyTableDiffIterator->getOrderedDiffByTable();
 
-		// DEBUG: diff table keys before filtering
 		self::debugLog(
 			"[SDU] Diff tables: " . implode( ", ", array_keys( $diffTable ) )
 		);
 
-		// SECOND CHECK: Have there been actual changes in the data?
-		// Ignore SMW's internal properties "smw_fpt_mdat"
 		unset( $diffTable['smw_fpt_mdat'] );
 
-		// DEBUG: diff table keys after filtering
 		self::debugLog(
 			"[SDU] Diff tables after filtering: " . implode( ", ", array_keys( $diffTable ) )
 		);
 
-		// Trigger flag
 		$triggerSemanticDependencies = false;
 
 		if ( count( $diffTable ) > 0 ) {
 
 			self::debugLog( "[SDU] -----> Data changes detected" );
 
-			// DEBUG: start scanning changes
 			self::debugLog(
 				"[SDU] Scanning diffTable for semantic changes..."
 			);
@@ -116,7 +204,6 @@ class Hooks {
 					continue;
 				}
 
-				// Check both inserts and deletes in the diffTable
 				foreach ( [ 'insert', 'delete' ] as $op ) {
 
 					if ( !isset( $value[$op] ) || !is_array( $value[$op] ) ) {
@@ -130,7 +217,6 @@ class Hooks {
 							" detected: table={$key} s_id={$change["s_id"]} p_id={$change["p_id"]}"
 						);
 
-						// Trigger dependency updates on any semantic change except pure revision metadata updates
 						if ( $change["p_id"] != 506 ) {
 							$triggerSemanticDependencies = true;
 							break 3;
@@ -139,7 +225,6 @@ class Hooks {
 				}
 			}
 
-			// DEBUG: final trigger status
 			self::debugLog(
 				"[SDU] triggerSemanticDependencies=" . ( $triggerSemanticDependencies ? "true" : "false" )
 			);
@@ -150,7 +235,6 @@ class Hooks {
 			return true;
 		}
 
-		// THIRD CHECK: Has this page been already traversed more than twice?
 		if ( array_key_exists( $id, $wgSDUTraversed ) ) {
 			$wgSDUTraversed[$id] = $wgSDUTraversed[$id] + 1;
 		} else {
@@ -162,8 +246,6 @@ class Hooks {
 			return true;
 		}
 
-		// QUERY AND UPDATE DEPENDENCIES
-
 		$wikiPageValues = [];
 
 		if ( $triggerSemanticDependencies ) {
@@ -172,7 +254,6 @@ class Hooks {
 
 			if ( $dataItem != null ) {
 
-				// DEBUG: dependency value count
 				self::debugLog(
 					"[SDU] Dependency values count=" . count( $dataItem )
 				);
@@ -181,7 +262,6 @@ class Hooks {
 
 					if ( $valueItem instanceof SMWDIBlob && $valueItem->getString() != $id ) {
 
-						// DEBUG: raw dependency query fragment
 						self::debugLog(
 							"[SDU] Dependency raw value=" . $valueItem->getSerialization()
 						);
@@ -196,7 +276,6 @@ class Hooks {
 
 		} else {
 
-			// No dependency trigger → only rebuild the current subject
 			$wikiPageValues = [ $subject ];
 		}
 
@@ -209,16 +288,16 @@ class Hooks {
 	 * @param string $queryString Query string, excluding [[ and ]] brackets
 	 */
 	private static function updatePagesMatchingQuery( $queryString ) {
-		global $sfgListSeparator;
+		global $wgPageFormsListSeparator;
 
 		$queryString = str_replace( 'AND', ']] [[', $queryString );
 		$queryString = str_replace( 'OR', ']] OR [[', $queryString );
 
-		// If SF is installed, get the separator character and change it into ||
+		// If PageForms is installed, get the separator character and change it into ||
 		// Otherwise SDU won't work with multi-value properties
-		if ( isset( $sfgListSeparator ) ) {
-			$queryString = rtrim( $queryString, $sfgListSeparator );
-			$queryString = str_replace( $sfgListSeparator, ' || ', $queryString );
+		if ( isset( $wgPageFormsListSeparator ) ) {
+			$queryString = rtrim( $queryString, $wgPageFormsListSeparator );
+			$queryString = str_replace( $wgPageFormsListSeparator, ' || ', $queryString );
 		}
 
 		self::debugLog( "[SDU] --------> [[$queryString]]" );
@@ -240,7 +319,6 @@ class Hooks {
 		$result = $store->getQueryResult( $query );
 		$wikiPageValues = $result->getResults();
 
-		// DEBUG: query match count
 		self::debugLog(
 			"[SDU] Query matched " . count( $wikiPageValues ) . " pages"
 		);
@@ -275,7 +353,6 @@ class Hooks {
 
 				if ( $jobs ) {
 
-					// DEBUG: job push count
 					self::debugLog(
 						"[SDU] Pushing " . count( $jobs ) . " UpdateJobs"
 					);
@@ -287,12 +364,10 @@ class Hooks {
 
 			} else {
 
-				// DEBUG: single job run
 				self::debugLog(
 					"[SDU] Running single UpdateJob immediately (no dependency trigger)"
 				);
 
-				/** @phpstan-ignore class.notFound */
 				DeferredUpdates::addCallableUpdate(
 					static function () use ( $jobFactory, $wikiPageValues ) {
 						$job = $jobFactory->newUpdateJob(
