@@ -1,6 +1,6 @@
 {
 	"name": "SemanticDependencyUpdater",
-	"version": "4.2.0",
+	"version": "5.0.0",
 	"author": [
 		"Simon Heimler (gesinn.it GmbH & Co. KG)",
 		"Alexander Gesinn (gesinn.it GmbH & Co. KG)",
@@ -12,9 +12,9 @@
 	"license-name": "MIT",
 	"type": "semantic",
 	"requires": {
-		"MediaWiki": ">= 1.39",
+		"MediaWiki": ">= 1.43",
 		"extensions": {
-			"SemanticMediaWiki": ">= 4.2.0"
+			"SemanticMediaWiki": ">= 6.0.0"
 		}
 	},
 	"AutoloadNamespaces": {
