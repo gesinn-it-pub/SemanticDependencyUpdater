@@ -4,6 +4,7 @@ namespace SDU;
 
 use DeferredUpdates;
 use JobQueueGroup;
+use SMW\DIWikiPage;
 use SMW\MediaWiki\Jobs\UpdateJob;
 use SMW\Services\ServicesFactory as ApplicationFactory;
 use SMWDIBlob;
@@ -35,6 +36,102 @@ class Hooks {
 		if ( !defined( 'SMW_VERSION' ) ) {
 			die( "ERROR: Semantic MediaWiki must be installed for Semantic Dependency Updater to run!" );
 		}
+	}
+
+	/**
+	 * Trigger dependency updates when a page is deleted.
+	 * SMW semantic properties are already gone in AfterDataUpdateComplete.
+	 */
+	public static function onPageDelete( $wikiPage, $user, $reason, $pageId ) {
+		self::debugLog(
+			"[SDU] PageDeleteComplete detected, loading semantic data before removal"
+		);
+
+		$title = $wikiPage->getTitle();
+
+		if ( $title == null ) {
+			return true;
+		}
+
+		$store = smwfGetStore();
+
+		$diWikiPage = DIWikiPage::newFromTitle( $title );
+
+		$semanticData = $store->getSemanticData( $diWikiPage );
+
+		if ( $semanticData == null ) {
+			self::debugLog(
+				"[SDU] <-- No semantic data available during delete"
+			);
+			return true;
+		}
+
+		// Trigger dependency rebuild without diff iterator
+		self::runDependencyUpdateOnDelete( $store, $semanticData );
+
+		return true;
+	}
+
+	/**
+	 * Runs dependency updates for deleted pages.
+	 * Always triggers because the page is being removed.
+	 */
+	private static function runDependencyUpdateOnDelete(
+		SMWStore $store,
+		SMWSemanticData $semanticData
+	): void {
+		global $wgSDUProperty;
+
+		$wgSDUProperty = str_replace( ' ', '_', $wgSDUProperty );
+
+		$subject = $semanticData->getSubject();
+		$title = $subject->getTitle();
+
+		if ( $title == null ) {
+			return;
+		}
+
+		self::debugLog(
+			"[SDU] <-- Triggering dependency updates, page was deleted: " . $title
+		);
+
+		$properties = $semanticData->getProperties();
+
+		if ( !isset( $properties[$wgSDUProperty] ) ) {
+			self::debugLog(
+				"[SDU] <-- Deleted page had no SDU property '{$wgSDUProperty}'"
+			);
+			return;
+		}
+
+		$dataItem = $semanticData->getPropertyValues( $properties[$wgSDUProperty] );
+
+		if ( $dataItem == null ) {
+			return;
+		}
+
+		self::debugLog(
+			"[SDU] Dependency values count=" . count( $dataItem )
+		);
+
+		$wikiPageValues = [];
+
+		foreach ( $dataItem as $valueItem ) {
+
+			if ( $valueItem instanceof SMWDIBlob ) {
+
+				self::debugLog(
+					"[SDU] Dependency raw value=" . $valueItem->getSerialization()
+				);
+
+				$wikiPageValues = array_merge(
+					$wikiPageValues,
+					self::updatePagesMatchingQuery( $valueItem->getSerialization() )
+				);
+			}
+		}
+
+		self::rebuildData( true, $wikiPageValues, $subject );
 	}
 
 	public static function onAfterDataUpdateComplete(
@@ -172,7 +269,6 @@ class Hooks {
 
 			if ( $dataItem != null ) {
 
-				// DEBUG: dependency value count
 				self::debugLog(
 					"[SDU] Dependency values count=" . count( $dataItem )
 				);
@@ -181,7 +277,6 @@ class Hooks {
 
 					if ( $valueItem instanceof SMWDIBlob && $valueItem->getString() != $id ) {
 
-						// DEBUG: raw dependency query fragment
 						self::debugLog(
 							"[SDU] Dependency raw value=" . $valueItem->getSerialization()
 						);
@@ -215,7 +310,6 @@ class Hooks {
 		$queryString = str_replace( 'OR', ']] OR [[', $queryString );
 
 		// If SF is installed, get the separator character and change it into ||
-		// Otherwise SDU won't work with multi-value properties
 		if ( isset( $sfgListSeparator ) ) {
 			$queryString = rtrim( $queryString, $sfgListSeparator );
 			$queryString = str_replace( $sfgListSeparator, ' || ', $queryString );
@@ -240,7 +334,6 @@ class Hooks {
 		$result = $store->getQueryResult( $query );
 		$wikiPageValues = $result->getResults();
 
-		// DEBUG: query match count
 		self::debugLog(
 			"[SDU] Query matched " . count( $wikiPageValues ) . " pages"
 		);
@@ -275,7 +368,6 @@ class Hooks {
 
 				if ( $jobs ) {
 
-					// DEBUG: job push count
 					self::debugLog(
 						"[SDU] Pushing " . count( $jobs ) . " UpdateJobs"
 					);
@@ -285,7 +377,6 @@ class Hooks {
 
 			} else {
 
-				// DEBUG: single job run
 				self::debugLog(
 					"[SDU] Running single UpdateJob immediately (no dependency trigger)"
 				);

@@ -23,6 +23,9 @@
   "Hooks": {
     "SMW::SQLStore::AfterDataUpdateComplete": [
       "SDU\\Hooks::onAfterDataUpdateComplete"
+    ],
+    "PageDeleteComplete": [
+      "SDU\\Hooks::onPageDelete"
     ]
   },
   "callback": "SDU\\Hooks::setup",
