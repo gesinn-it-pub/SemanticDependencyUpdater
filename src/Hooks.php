@@ -2,7 +2,7 @@
 
 namespace SDU;
 
-use MediaWiki\Deferred\DeferredUpdates;
+use DeferredUpdates;
 use MediaWiki\MediaWikiServices;
 use SMW\DIWikiPage;
 use SMW\MediaWiki\Jobs\UpdateJob;
