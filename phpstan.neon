@@ -11,6 +11,6 @@ parameters:
 		- node_modules (?)
 		- coverage (?)
 	scanDirectories:
-		- ../SemanticMediaWiki
+		- ../SemanticMediaWiki/src
 		- ../../includes
 		- ../../tests/phpunit
