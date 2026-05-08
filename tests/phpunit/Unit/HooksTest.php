@@ -3,10 +3,10 @@
 namespace SDU\Tests;
 
 use MediaWikiIntegrationTestCase;
+use MediaWiki\Title\Title;
 use SDU\Hooks;
 use SMW\DIProperty;
 use SMW\SQLStore\ChangeOp\ChangeOp;
-use Title;
 
 /**
  * @group SemanticDependencyUpdater
