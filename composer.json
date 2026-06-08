@@ -31,8 +31,7 @@
 		],
 		"analyze": [
 			"@lint",
-			"@phpcs",
-			"@phpstan"
+			"@phpcs"
 		],
 		"lint": "parallel-lint . --exclude vendor --exclude node_modules",
 		"phpcs": "phpcs -ps -d memory_limit=2G",

@@ -2,11 +2,11 @@
 
 namespace SDU\Tests;
 
+use MediaWiki\Title\Title;
 use MediaWikiIntegrationTestCase;
 use SDU\Hooks;
 use SMW\DIProperty;
 use SMW\SQLStore\ChangeOp\ChangeOp;
-use Title;
 
 /**
  * @group SemanticDependencyUpdater
