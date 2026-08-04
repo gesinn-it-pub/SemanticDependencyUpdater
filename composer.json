@@ -40,8 +40,11 @@
 		"phpstan-baseline": "phpstan analyse --configuration=phpstan.neon --memory-limit=2G --generate-baseline",
 		"psalm": "psalm --config=psalm.xml",
 		"psalm-baseline": "psalm --config=psalm.xml --set-baseline=psalm-baseline.xml",
-		"phpunit": "php ../../tests/phpunit/phpunit.php -c phpunit.xml.dist --testdox",
-		"phpunit-coverage": "php ../../tests/phpunit/phpunit.php -c phpunit.xml.dist --testdox --coverage-text --coverage-html coverage/php --coverage-clover coverage/php/coverage.xml",
+		"phpunit": [
+			"Composer\\Config::disableProcessTimeout",
+			"bash -c 'cd ${MW_INSTALL_PATH:-../..} && { [ -f tests/phpunit/generatePHPUnitConfig.php ] && { php tests/phpunit/generatePHPUnitConfig.php >/dev/null 2>&1 || true; [ -f phpunit.xml ] || printf \"%s\" \"<phpunit><!-- generatePHPUnitConfig --></phpunit>\" > phpunit.xml; } || true; } && MEDIAWIKI_HAS_INTEGRATION_TESTS=1 vendor/bin/phpunit -c extensions/SemanticDependencyUpdater/phpunit.xml.dist --bootstrap tests/phpunit/bootstrap.php --testdox'"
+		],
+		"phpunit-coverage": "@phpunit --coverage-text --coverage-html extensions/SemanticDependencyUpdater/coverage/php --coverage-clover extensions/SemanticDependencyUpdater/coverage/php/coverage.xml",
 		"post-test-coverage": [
 			"sed -i 's|/var/www/html/extensions/SemanticDependencyUpdater/||g' coverage/php/coverage.xml",
 			"find coverage/php -type f -name '*.html' -exec sed -i 's|/var/www/html/extensions/||g' {} +"
