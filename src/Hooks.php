@@ -67,7 +67,7 @@ class Hooks {
 		}
 
 		// Trigger dependency rebuild without diff iterator
-		self::runDependencyUpdateOnDelete( $store, $semanticData );
+		self::runDependencyUpdateOnDelete( $semanticData );
 
 		return true;
 	}
@@ -76,10 +76,7 @@ class Hooks {
 	 * Runs dependency updates for deleted pages.
 	 * Always triggers because the page is being removed.
 	 */
-	private static function runDependencyUpdateOnDelete(
-		Store $store,
-		SemanticData $semanticData
-	): void {
+	private static function runDependencyUpdateOnDelete( SemanticData $semanticData ): void {
 		global $wgSDUProperty;
 
 		$wgSDUProperty = str_replace( ' ', '_', $wgSDUProperty );
@@ -142,6 +139,9 @@ class Hooks {
 		global $wgSDUProperty;
 		global $wgSDUTraversed;
 
+		// $wgSDUTraversed is a process-local cache, not a declared extension.json config
+		// variable, so it is genuinely unset on first use.
+		// @phan-suppress-next-line MediaWikiNoIssetIfDefined
 		if ( !isset( $wgSDUTraversed ) ) {
 			$wgSDUTraversed = [];
 		}
@@ -236,7 +236,7 @@ class Hooks {
 		}
 
 		if ( array_key_exists( $id, $wgSDUTraversed ) ) {
-			$wgSDUTraversed[$id] = $wgSDUTraversed[$id] + 1;
+			$wgSDUTraversed[$id] += 1;
 		} else {
 			$wgSDUTraversed[$id] = 1;
 		}
@@ -294,7 +294,10 @@ class Hooks {
 		$queryString = str_replace( 'OR', ']] OR [[', $queryString );
 
 		// If PageForms is installed, get the separator character and change it into ||
-		// Otherwise SDU won't work with multi-value properties
+		// Otherwise SDU won't work with multi-value properties.
+		// $wgPageFormsListSeparator is declared by the optional PageForms extension, not SDU,
+		// so it is genuinely unset when PageForms is not installed.
+		// @phan-suppress-next-line MediaWikiNoIssetIfDefined
 		if ( isset( $wgPageFormsListSeparator ) ) {
 			$queryString = rtrim( $queryString, $wgPageFormsListSeparator );
 			$queryString = str_replace( $wgPageFormsListSeparator, ' || ', $queryString );
@@ -342,8 +345,14 @@ class Hooks {
 
 				foreach ( $wikiPageValues as $wikiPageValue ) {
 
+					$jobTitle = $wikiPageValue->getTitle();
+
+					if ( $jobTitle === null ) {
+						continue;
+					}
+
 					$jobs[] = $jobFactory->newUpdateJob(
-						$wikiPageValue->getTitle(),
+						$jobTitle,
 						[
 							UpdateJob::FORCED_UPDATE => true,
 							'shallowUpdate' => false
@@ -370,8 +379,14 @@ class Hooks {
 
 				DeferredUpdates::addCallableUpdate(
 					static function () use ( $jobFactory, $wikiPageValues ) {
+						$jobTitle = $wikiPageValues[0]->getTitle();
+
+						if ( $jobTitle === null ) {
+							return;
+						}
+
 						$job = $jobFactory->newUpdateJob(
-							$wikiPageValues[0]->getTitle(),
+							$jobTitle,
 							[
 								UpdateJob::FORCED_UPDATE => true,
 								'shallowUpdate' => false
