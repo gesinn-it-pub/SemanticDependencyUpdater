@@ -313,6 +313,91 @@ class SelfReferenceIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
+	 * Regression test for a bug found while auditing the self-update-pending
+	 * marker: a self-referencing page whose derived value keeps producing a
+	 * genuine, non-empty diff on consecutive re-parses (rather than the
+	 * documented case of resolving after one retry) must have its
+	 * self-update-pending attempt count ACCUMULATE across those re-parses,
+	 * not reset to 1 on every one of them. Before the fix,
+	 * onAfterDataUpdateComplete() unconditionally cleared the marker before
+	 * (re-)marking a still-self-referencing page, so the marker never
+	 * advanced past attempt 1 - and since $wgSDUTraversed (the only other
+	 * bound) is explicitly documented as not surviving across real
+	 * job-queue-runner process boundaries, such a page could re-trigger
+	 * itself indefinitely across separate job-runner invocations in
+	 * production.
+	 *
+	 * The dependency page's value is changed before each drain so every
+	 * forced self-UpdateJob re-parse of the self-referencing page finds a
+	 * genuinely new (non-empty, non-ignored) diff rather than an empty one -
+	 * this is what "never stabilizes" means here, as opposed to
+	 * testSelfUpdateRetriesUntilStoreCatchesUp()'s empty-diff retry case.
+	 *
+	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 * @covers \SDU\Hooks::rebuildData
+	 */
+	public function testSelfReferencingPageAccumulatesAttemptsAcrossConsecutiveGenuineChanges() {
+		$title = Title::newFromText( 'SDUSelfReferenceNeverStabilizesTestPage', NS_MAIN );
+		$dependencyTitle = Title::newFromText( 'SDUSelfReferenceNeverStabilizesDependency', NS_MAIN );
+
+		$this->editPage( $dependencyTitle, '{{#set:SDUTestSource=Value1}}' );
+
+		$wikitext = '{{#set:SDUTestDerived={{#show:SDUSelfReferenceNeverStabilizesDependency|?SDUTestSource}}}}'
+			. '{{#set:Semantic Dependency={{FULLPAGENAME}}}}';
+
+		$this->editPage( $title, $wikitext );
+
+		$this->assertSelfUpdatePendingAttempt(
+			1,
+			$title,
+			'The initial self-referencing edit must mark the page as ' .
+			'self-update-pending at attempt 1.'
+		);
+
+		// Drain the forced self-UpdateJob: its re-parse finds SDUTestDerived
+		// resolving to "Value1" - a genuine, non-empty change from the empty
+		// value at save time, not an empty diff.
+		$this->runJobsUntilOneUpdateJobRan();
+
+		$this->assertSame(
+			[ 'Value1' ],
+			$this->getPropertyStringValues( $title, 'SDUTestDerived' ),
+			'Sanity check: the first re-parse resolves Derived to the ' .
+			'dependency\'s current value.'
+		);
+
+		$this->assertSelfUpdatePendingAttempt(
+			2,
+			$title,
+			'A second consecutive genuine change on the same still-self-referencing ' .
+			'page must ADVANCE the attempt count to 2, not reset it back to 1 - ' .
+			'otherwise the marker could never bound a non-stabilizing self-reference ' .
+			'across separate job-queue-runner processes.'
+		);
+
+		// Change the dependency again before the next drain, so the next
+		// forced self-UpdateJob's re-parse again finds a genuine change
+		// (Derived moving from "Value1" to "Value2"), not an empty diff.
+		$this->editPage( $dependencyTitle, '{{#set:SDUTestSource=Value2}}' );
+		$this->runJobsUntilOneUpdateJobRan();
+
+		$this->assertSame(
+			[ 'Value2' ],
+			$this->getPropertyStringValues( $title, 'SDUTestDerived' ),
+			'Sanity check: the second re-parse resolves Derived to the ' .
+			'dependency\'s updated value.'
+		);
+
+		$this->assertSelfUpdatePendingAttempt(
+			3,
+			$title,
+			'A third consecutive genuine change must advance the attempt count ' .
+			'to 3, confirming the marker accumulates rather than resetting on ' .
+			'every still-self-referencing genuine change.'
+		);
+	}
+
+	/**
 	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
 	 */
 	public function testSelfReferenceDoesNotRecurseIndefinitely() {

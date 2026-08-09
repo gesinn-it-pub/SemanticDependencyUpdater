@@ -60,6 +60,21 @@ render-extensions-local-json:
 # rule for a given target, so redefining them here (after the include above)
 # takes precedence over build/Makefile's own definitions without needing to
 # patch that submodule.
+#
+# Known local-only flakiness: running `make install`/`make up` for one
+# SMW_VERSION shortly after running it for a different SMW_VERSION in the
+# same shell session has intermittently picked up the PREVIOUS run's
+# rendered extensions.local.json content in the Docker build context,
+# despite render-extensions-local-json correctly writing the new value to
+# disk first and `.build` using `--no-cache` - i.e. the wrong SESP_VERSION
+# gets baked into the image even though the file on disk is correct at
+# build time. Root cause not yet identified (suspected Docker build-context
+# snapshotting/caching interaction, not a bug in this Makefile's rule
+# ordering, which was directly verified to be correct in isolation). Not
+# observed in CI, where each matrix job runs in a fresh runner. If you hit
+# an extension version mismatch when switching SMW_VERSION locally, run
+# `docker builder prune -af` and retry with only one SMW_VERSION per shell
+# session before assuming a real regression.
 .PHONY: up
 up: render-extensions-local-json .init .build .up
 
