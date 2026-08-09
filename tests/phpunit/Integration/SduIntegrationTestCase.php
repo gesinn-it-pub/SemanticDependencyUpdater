@@ -65,6 +65,18 @@ abstract class SduIntegrationTestCase extends MediaWikiIntegrationTestCase {
 			);
 		}
 
+		// SMW's own SQLStore\EntityStore\CachingSemanticDataLookup holds a
+		// process-lifetime static cache of SemanticData/property lookups that
+		// MediaWikiIntegrationTestCase's per-test service/DB resets never
+		// touch - without clearing it, a query or property-type lookup here
+		// can return another test method's (or class's) stale result instead
+		// of hitting this test's own temporary tables. This mirrors what
+		// SMW's own test base class (tests/phpunit/SMWIntegrationTestCase.php)
+		// does before every test for exactly this reason.
+		\SMW\SQLStore\EntityStore\CachingSemanticDataLookup::clear();
+		\SMW\StoreFactory::clear();
+		\SMW\PropertyRegistry::clear();
+
 		global $wgSDUProperty, $wgSDUTraversed, $wgSDUIgnoredProperties;
 
 		$wgSDUProperty = 'Semantic Dependency';
@@ -80,6 +92,50 @@ abstract class SduIntegrationTestCase extends MediaWikiIntegrationTestCase {
 		$this->editPage(
 			Title::newFromText( 'Semantic Dependency', SMW_NS_PROPERTY ),
 			'{{#set:Has type=Text}}'
+		);
+
+		$this->waitForPropertyTypeDeclaration( 'Semantic Dependency' );
+	}
+
+	/**
+	 * Blocks until the given property's type declaration is actually visible
+	 * via a fresh store lookup, draining one job at a time in between checks
+	 * - unlike getJobRunner()->run( [] ), which unconditionally drains the
+	 * ENTIRE queue regardless of whether the declaration has landed yet, and
+	 * can run other, unrelated jobs a subclass's own addDBData() (or a later
+	 * test method) still expects to find pending (e.g. its own dependency
+	 * pages' initial parses), shifting timing/state for every test in the
+	 * same PHPUnit process rather than just settling this one property
+	 * declaration. This checks the actual condition SDU depends on directly,
+	 * rather than assuming which job type/count happens to produce it.
+	 *
+	 * Without this, "Semantic Dependency" values have intermittently still
+	 * resolved as DIWikiPage (SMW's $smwgPDefaultType default) rather than
+	 * SMWDIBlob, silently bypassing the self-referencing "Update Self"
+	 * detection entirely (see the class docblock above).
+	 */
+	private function waitForPropertyTypeDeclaration( string $propertyLabel ): void {
+		$store = smwfGetStore();
+		$propertySubject = \SMW\DIWikiPage::newFromTitle(
+			Title::newFromText( $propertyLabel, SMW_NS_PROPERTY )
+		);
+		$typeProperty = new \SMW\DIProperty( '_TYPE' );
+
+		for ( $i = 0; $i < 10; $i++ ) {
+			if ( $store->getPropertyValues( $propertySubject, $typeProperty ) !== [] ) {
+				return;
+			}
+
+			$status = $this->getServiceContainer()->getJobRunner()->run( [ 'maxJobs' => 1 ] );
+
+			if ( $status['jobs'] === [] ) {
+				break;
+			}
+		}
+
+		$this->fail(
+			"Property:{$propertyLabel}'s type declaration never became visible in the " .
+			'store after draining the job queue - see waitForPropertyTypeDeclaration().'
 		);
 	}
 
