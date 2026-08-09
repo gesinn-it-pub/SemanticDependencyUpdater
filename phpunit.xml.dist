@@ -15,6 +15,7 @@
     <testsuites>
         <testsuite name="semantic-dependency-updater">
             <directory>tests/phpunit/Unit</directory>
+            <directory>tests/phpunit/Integration</directory>
         </testsuite>
     </testsuites>
     <filter>
