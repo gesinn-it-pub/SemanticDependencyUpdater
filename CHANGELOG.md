@@ -6,6 +6,8 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 
 ## [Unreleased]
 
+## [5.0.2] - 2026-08-10
+
 ### Fixed
 - Don't crash `onAfterDataUpdateComplete()` on the default
   `$wgSDUIgnoredProperties` value (`___REVID`) when SemanticExtraSpecial-
@@ -19,7 +21,8 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
   (`CachingSemanticDataLookup`, `StoreFactory`, `PropertyRegistry`) that
   intermittently caused property type declarations to appear invisible to
   later test methods in the same PHPUnit process
-  [`4c87b14`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/4c87b14)
+  [`4c87b14`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/4c87b14),
+  [`b995395`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/b995395)
 
 ## [5.0.1] - 2026-08-09
 
@@ -52,6 +55,7 @@ deletion-triggered dependency rebuilds, which were never actually wired up.
 - Replace PHPStan/Psalm with Phan for static analysis
   [`c4868d1`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/c4868d1)
 
-[Unreleased]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.0.1...HEAD
+[Unreleased]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.0.2...HEAD
+[5.0.2]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.0.1...5.0.2
 [5.0.1]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.0.0...5.0.1
 [5.0.0]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/releases/tag/5.0.0
