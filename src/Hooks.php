@@ -178,9 +178,18 @@ class Hooks {
 		$ids = [];
 
 		foreach ( $wgSDUIgnoredProperties as $propertyName ) {
-			$id = $store->getObjectIds()->getSMWPropertyID(
-				DIProperty::newFromUserLabel( $propertyName )
-			);
+			try {
+				$property = DIProperty::newFromUserLabel( $propertyName );
+			} catch ( \SMW\Exception\PropertyLabelNotResolvedException ) {
+				// A "_"-prefixed name (e.g. the default ___REVID) that is not
+				// registered as a predefined property, because the extension
+				// providing it (e.g. SemanticExtraSpecialProperties) is not
+				// installed - DIProperty's constructor throws for this instead
+				// of returning a falsy ID, unlike ordinary unknown labels.
+				continue;
+			}
+
+			$id = $store->getObjectIds()->getSMWPropertyID( $property );
 
 			if ( $id > 0 ) {
 				$ids[] = $id;
