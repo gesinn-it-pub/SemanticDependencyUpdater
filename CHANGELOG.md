@@ -6,6 +6,21 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 
 ## [Unreleased]
 
+### Fixed
+- Don't crash `onAfterDataUpdateComplete()` on the default
+  `$wgSDUIgnoredProperties` value (`___REVID`) when SemanticExtraSpecial-
+  Properties is not installed - contrary to what `extension.json`'s config
+  description claimed, this silently broke SDU entirely on any such
+  installation
+  [`f631775`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/f631775)
+
+### Tests
+- Harden `SduIntegrationTestCase` against stale SMW test-process caches
+  (`CachingSemanticDataLookup`, `StoreFactory`, `PropertyRegistry`) that
+  intermittently caused property type declarations to appear invisible to
+  later test methods in the same PHPUnit process
+  [`4c87b14`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/4c87b14)
+
 ## [5.0.1] - 2026-08-09
 
 Hardens the "Update Self" self-update-pending mechanism against several
