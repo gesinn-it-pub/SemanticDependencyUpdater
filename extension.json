@@ -20,6 +20,9 @@
 	"AutoloadNamespaces": {
 		"SDU\\": "src/"
 	},
+	"TestAutoloadNamespaces": {
+		"SDU\\Tests\\": "tests/phpunit/"
+	},
 	"Hooks": {
 		"SMW::SQLStore::AfterDataUpdateComplete": [
 			"SDU\\Hooks::onAfterDataUpdateComplete"
@@ -32,6 +35,10 @@
 		},
 		"SDUUseJobQueue": {
 			"value": true
+		},
+		"SDUIgnoredProperties": {
+			"value": [ "___REVID" ],
+			"description": "Property names whose changes alone must not trigger SDU. Defaults to SemanticExtraSpecialProperties' Revision ID property (___REVID), which - when enabled via $sespgEnabledPropertyList - changes on every single edit regardless of semantic content, verified empirically against a real installation. Harmless to keep if SemanticExtraSpecialProperties is not installed or ___REVID is not enabled."
 		}
 	},
 	"manifest_version": 2

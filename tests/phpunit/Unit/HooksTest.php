@@ -14,16 +14,15 @@ use SMW\SQLStore\ChangeOp\ChangeOp;
  */
 class HooksTest extends MediaWikiIntegrationTestCase {
 
-	private $jobPushed = false;
-
 	protected function setUp(): void {
 		parent::setUp();
 
-		global $wgSDUProperty, $wgSDUTraversed, $wgSDUUseJobQueue;
+		global $wgSDUProperty, $wgSDUTraversed, $wgSDUUseJobQueue, $wgSDUIgnoredProperties;
 
 		$wgSDUProperty = 'Depends On';
 		$wgSDUTraversed = null;
 		$wgSDUUseJobQueue = false;
+		$wgSDUIgnoredProperties = [];
 
 		Hooks::setup();
 	}

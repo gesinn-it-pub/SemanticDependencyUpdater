@@ -1,0 +1,10 @@
+{
+  "extensions": [
+    {
+      "name": "SemanticExtraSpecialProperties",
+      "version": "${SESP_VERSION}",
+      "repo": "SemanticMediaWiki/SemanticExtraSpecialProperties",
+      "local_settings": "wfLoadExtension( 'SemanticExtraSpecialProperties' );\n$sespgEnabledPropertyList = [ '_REVID' ];"
+    }
+  ]
+}
