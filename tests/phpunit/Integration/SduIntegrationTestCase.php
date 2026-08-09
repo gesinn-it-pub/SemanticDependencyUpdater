@@ -94,6 +94,16 @@ abstract class SduIntegrationTestCase extends MediaWikiIntegrationTestCase {
 			'{{#set:Has type=Text}}'
 		);
 
+		// addDBData() runs (via maybeSetupDB()) before setUp() gets a chance
+		// to markTestSkipped() for SMW < 7.0 - waiting here would just turn
+		// that already-documented, accepted incompatibility (see the class
+		// docblock's "Known incompatibility") into a hard failure instead of
+		// a clean skip, since page edits never reach SMW's store update
+		// pipeline at all on those versions in this harness.
+		if ( version_compare( SMW_VERSION, '7.0.0', '<' ) ) {
+			return;
+		}
+
 		$this->waitForPropertyTypeDeclaration( 'Semantic Dependency' );
 	}
 
