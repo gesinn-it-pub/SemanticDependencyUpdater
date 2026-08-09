@@ -26,15 +26,15 @@
 	"Hooks": {
 		"SMW::SQLStore::AfterDataUpdateComplete": [
 			"SDU\\Hooks::onAfterDataUpdateComplete"
+		],
+		"ArticleDelete": [
+			"SDU\\Hooks::onPageDelete"
 		]
 	},
 	"callback": "SDU\\Hooks::setup",
 	"config": {
 		"SDUProperty": {
 			"value": "Semantic Dependency"
-		},
-		"SDUUseJobQueue": {
-			"value": true
 		},
 		"SDUIgnoredProperties": {
 			"value": [ "___REVID" ],

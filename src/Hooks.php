@@ -4,6 +4,8 @@ namespace SDU;
 
 use MediaWiki\Deferred\DeferredUpdates;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Status\Status;
+use MediaWiki\User\User;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
 use SMW\MediaWiki\Jobs\UpdateJob;
@@ -12,6 +14,7 @@ use SMW\Services\ServicesFactory as ApplicationFactory;
 use SMW\Store;
 use SMWDIBlob;
 use SMWQueryProcessor;
+use WikiPage;
 
 class Hooks {
 
@@ -40,19 +43,33 @@ class Hooks {
 	}
 
 	/**
-	 * Trigger dependency updates when a page is deleted.
-	 * SMW semantic properties are already gone in AfterDataUpdateComplete.
+	 * Trigger dependency updates when a page is about to be deleted.
+	 *
+	 * Hooked on ArticleDelete (fires before the page and its SMW data are
+	 * actually removed), not PageDeleteComplete (fires after): SMW's own
+	 * ArticleDelete handler deletes the page's semantic data via a
+	 * DeferredUpdate whose execution timing depends on request context
+	 * (Site::isCommandLineMode()) - genuinely deferred to POSTSEND in a web
+	 * request, but run synchronously and immediately in CLI/job-queue
+	 * context. Since SDU requires SemanticMediaWiki and therefore loads
+	 * after it, SMW's own ArticleDelete handler is registered - and thus
+	 * runs - before this one regardless of context, so hooking the same
+	 * event (rather than PageDeleteComplete) reliably sees the semantic data
+	 * while it still exists, independent of that timing difference.
 	 */
-	public static function onPageDelete( $wikiPage, $user, $reason, $pageId ) {
+	public static function onPageDelete(
+		WikiPage $wikiPage,
+		User $user,
+		string &$reason,
+		string &$error,
+		Status $status,
+		bool $suppress
+	) {
 		self::debugLog(
-			"[SDU] PageDeleteComplete detected, loading semantic data before removal"
+			"[SDU] ArticleDelete detected, loading semantic data before removal"
 		);
 
 		$title = $wikiPage->getTitle();
-
-		if ( $title == null ) {
-			return true;
-		}
 
 		$store = smwfGetStore();
 
@@ -282,6 +299,22 @@ class Hooks {
 		);
 	}
 
+	/**
+	 * Test seam exposing the self-update-pending marker's current attempt
+	 * count (0 if no marker is set), so tests can assert on this internal
+	 * state directly rather than only inferring it from downstream job
+	 * counts - job-count-only assertions previously let a page get falsely
+	 * marked as self-update-pending (see onAfterDataUpdateComplete()'s
+	 * $triggerSemanticDependencies guard around markSelfUpdatePending())
+	 * without any test catching it, since the false marker had no
+	 * observable effect on job counts in most tested scenarios.
+	 *
+	 * @internal for tests only
+	 */
+	public static function getSelfUpdatePendingAttemptForTesting( string $id ): int {
+		return self::getSelfUpdateAttempt( $id );
+	}
+
 	private static function clearSelfUpdatePending( string $id ): void {
 		self::getSelfUpdateMarkerCache()->delete(
 			smwfCacheKey( self::SELF_UPDATE_PENDING_CACHE_NAMESPACE, $id )
@@ -308,22 +341,14 @@ class Hooks {
 	 * Always goes through the real job queue with a delay (never
 	 * rebuildData()'s synchronous $job->run() path, which would re-run
 	 * immediately in the same request and give a lagging store no time to
-	 * catch up) and is independent of $wgSDUUseJobQueue - a disabled job
-	 * queue means SDU cannot usefully retry at all, so this is a no-op then.
+	 * catch up).
 	 */
 	private static function retrySelfUpdateIfWithinTraversalLimit( string $id, DIWikiPage $subject ): void {
-		global $wgSDUUseJobQueue;
-
 		if ( self::getSelfUpdateAttempt( $id ) === 0 ) {
 			// No self-UpdateJob is in flight for this page - this empty diff
 			// is from an unrelated store update (e.g. another extension's
 			// job touching the same page) and has nothing to do with SDU's
 			// "Update Self" store-timing gap, so it must not be retried.
-			return;
-		}
-
-		if ( !$wgSDUUseJobQueue ) {
-			self::clearSelfUpdatePending( $id );
 			return;
 		}
 
@@ -466,12 +491,27 @@ class Hooks {
 				"[SDU] triggerSemanticDependencies=" . ( $triggerSemanticDependencies ? "true" : "false" )
 			);
 
-			// A genuine change landed on a page that may still have a
-			// self-update-pending marker from an earlier attempt (e.g. this
-			// very change IS the store catching up that the retry was
-			// waiting for). Clear it so a later unrelated empty diff on this
-			// page isn't mistaken for still-pending self-update work.
-			self::clearSelfUpdatePending( $id );
+			if ( !$triggerSemanticDependencies ) {
+				// Every changed property is on $wgSDUIgnoredProperties (e.g.
+				// SESP's ___REVID, which changes on every edit regardless of
+				// semantic content) - per that setting's documented purpose,
+				// such a change must not trigger SDU at all. Returning here
+				// deliberately skips rebuildData() entirely: that call's
+				// "no dependency trigger" branch forces an immediate
+				// synchronous re-parse of this very page, which would only
+				// find an empty diff (nothing meaningful changed) and, via
+				// onAfterDataUpdateComplete()'s own "no semantic data
+				// changes detected" branch below, either falsely mark this
+				// ordinary page as self-update-pending or - if a genuine
+				// self-update-pending marker already exists from an earlier,
+				// unrelated "Update Self" cycle - falsely advance its bounded
+				// attempt count for a reason that has nothing to do with
+				// that cycle.
+				self::debugLog(
+					"[SDU] <-- Only ignored properties changed, skipping rebuild"
+				);
+				return true;
+			}
 
 		} else {
 
@@ -507,57 +547,76 @@ class Hooks {
 			return true;
 		}
 
+		// Reaching this point always means $triggerSemanticDependencies is
+		// true: the only other path through the branch above (ignored-only
+		// changes) already returned early.
 		$wikiPageValues = [];
 
-		if ( $triggerSemanticDependencies ) {
+		$dataItem = $newData->getPropertyValues( $properties[$wgSDUProperty] );
 
-			$dataItem = $newData->getPropertyValues( $properties[$wgSDUProperty] );
+		if ( $dataItem != null ) {
 
-			if ( $dataItem != null ) {
+			self::debugLog(
+				"[SDU] Dependency values count=" . count( $dataItem )
+			);
 
-				self::debugLog(
-					"[SDU] Dependency values count=" . count( $dataItem )
-				);
+			foreach ( $dataItem as $valueItem ) {
 
-				foreach ( $dataItem as $valueItem ) {
+				if ( $valueItem instanceof SMWDIBlob ) {
 
-					if ( $valueItem instanceof SMWDIBlob ) {
+					self::debugLog(
+						"[SDU] Dependency raw value=" . $valueItem->getSerialization()
+					);
 
-						self::debugLog(
-							"[SDU] Dependency raw value=" . $valueItem->getSerialization()
-						);
-
-						// Self-referencing values (e.g. Semantic Dependency={{FULLPAGENAME}})
-						// are intentionally not excluded here: the documented "Update Self"
-						// use case relies on the page re-queuing itself for a forced update,
-						// e.g. when a property is derived from another property of the same
-						// page via a live store query. Recursion is bounded by $wgSDUTraversed
-						// below, not by excluding self-matches from the query here.
-						$wikiPageValues = array_merge(
-							$wikiPageValues,
-							self::updatePagesMatchingQuery( $valueItem->getSerialization() )
-						);
-					}
+					// Self-referencing values (e.g. Semantic Dependency={{FULLPAGENAME}})
+					// are intentionally not excluded here: the documented "Update Self"
+					// use case relies on the page re-queuing itself for a forced update,
+					// e.g. when a property is derived from another property of the same
+					// page via a live store query. Recursion is bounded by $wgSDUTraversed
+					// below, not by excluding self-matches from the query here.
+					$wikiPageValues = array_merge(
+						$wikiPageValues,
+						self::updatePagesMatchingQuery( $valueItem->getSerialization() )
+					);
 				}
 			}
-
-		} else {
-
-			$wikiPageValues = [ $subject ];
 		}
 
-		// If this page is among its own dependency targets (the documented
-		// "Update Self" case), mark it so that a later empty-diff re-parse
-		// on this same page can be recognized as this job's own follow-up
-		// and retried if needed - see retrySelfUpdateIfWithinTraversalLimit().
+		$isSelfReferencing = false;
+
 		foreach ( $wikiPageValues as $wikiPageValue ) {
 			if ( $wikiPageValue->equals( $subject ) ) {
-				self::markSelfUpdatePending( $id );
+				$isSelfReferencing = true;
 				break;
 			}
 		}
 
-		self::rebuildData( $triggerSemanticDependencies, $wikiPageValues, $subject );
+		if ( $isSelfReferencing ) {
+			// This page is among its own dependency targets (the documented
+			// "Update Self" case). markSelfUpdatePending() itself increments
+			// any existing attempt count (see its own docblock) rather than
+			// resetting it, so a self-referencing page whose derived value
+			// takes several genuine (non-empty-diff) passes to stabilize -
+			// or, pathologically, never stabilizes at all - still accumulates
+			// toward SELF_UPDATE_MAX_ATTEMPTS instead of being reset to
+			// attempt 1 on every pass. Without this, the cross-process-durable
+			// marker could never actually bound such a page, leaving only
+			// $wgSDUTraversed to do so - which, per its own docblock above,
+			// does not survive across real job-queue-runner process
+			// boundaries, only within a single one.
+			self::markSelfUpdatePending( $id );
+		} else {
+			// A genuine, non-ignored change landed on a page that is not (or
+			// no longer) self-referencing, but may still have a
+			// self-update-pending marker from an earlier attempt (e.g. the
+			// dependency was just removed, or this was never really part of
+			// that cycle to begin with). Clear it so a later unrelated empty
+			// diff on this page isn't mistaken for still-pending self-update
+			// work.
+			self::clearSelfUpdatePending( $id );
+		}
+
+		self::rebuildData( true, $wikiPageValues, $subject );
 
 		return true;
 	}
@@ -611,70 +670,65 @@ class Hooks {
 	 * Rebuilds data of the given wikipages to regenerate semantic attributes and re-run queries
 	 */
 	public static function rebuildData( $triggerSemanticDependencies, $wikiPageValues, $subject ) {
-		global $wgSDUUseJobQueue;
+		$jobFactory = ApplicationFactory::getInstance()->newJobFactory();
 
-		if ( $wgSDUUseJobQueue ) {
+		if ( $triggerSemanticDependencies ) {
 
-			$jobFactory = ApplicationFactory::getInstance()->newJobFactory();
+			$jobs = [];
 
-			if ( $triggerSemanticDependencies ) {
+			foreach ( $wikiPageValues as $wikiPageValue ) {
 
-				$jobs = [];
+				$jobTitle = $wikiPageValue->getTitle();
 
-				foreach ( $wikiPageValues as $wikiPageValue ) {
+				if ( $jobTitle === null ) {
+					continue;
+				}
 
-					$jobTitle = $wikiPageValue->getTitle();
+				$jobs[] = $jobFactory->newUpdateJob(
+					$jobTitle,
+					[
+						UpdateJob::FORCED_UPDATE => true,
+						'shallowUpdate' => false
+					]
+				);
+			}
+
+			if ( $jobs ) {
+
+				self::debugLog(
+					"[SDU] Pushing " . count( $jobs ) . " UpdateJobs"
+				);
+
+				MediaWikiServices::getInstance()
+					->getJobQueueGroup()
+					->lazyPush( $jobs );
+			}
+
+		} else {
+
+			self::debugLog(
+				"[SDU] Running single UpdateJob immediately (no dependency trigger)"
+			);
+
+			DeferredUpdates::addCallableUpdate(
+				static function () use ( $jobFactory, $wikiPageValues ) {
+					$jobTitle = $wikiPageValues[0]->getTitle();
 
 					if ( $jobTitle === null ) {
-						continue;
+						return;
 					}
 
-					$jobs[] = $jobFactory->newUpdateJob(
+					$job = $jobFactory->newUpdateJob(
 						$jobTitle,
 						[
 							UpdateJob::FORCED_UPDATE => true,
 							'shallowUpdate' => false
 						]
 					);
+
+					$job->run();
 				}
-
-				if ( $jobs ) {
-
-					self::debugLog(
-						"[SDU] Pushing " . count( $jobs ) . " UpdateJobs"
-					);
-
-					MediaWikiServices::getInstance()
-						->getJobQueueGroup()
-						->lazyPush( $jobs );
-				}
-
-			} else {
-
-				self::debugLog(
-					"[SDU] Running single UpdateJob immediately (no dependency trigger)"
-				);
-
-				DeferredUpdates::addCallableUpdate(
-					static function () use ( $jobFactory, $wikiPageValues ) {
-						$jobTitle = $wikiPageValues[0]->getTitle();
-
-						if ( $jobTitle === null ) {
-							return;
-						}
-
-						$job = $jobFactory->newUpdateJob(
-							$jobTitle,
-							[
-								UpdateJob::FORCED_UPDATE => true,
-								'shallowUpdate' => false
-							]
-						);
-
-						$job->run();
-					}
-				);
-			}
+			);
 		}
 	}
 

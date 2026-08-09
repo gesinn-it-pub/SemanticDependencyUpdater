@@ -65,11 +65,10 @@ abstract class SduIntegrationTestCase extends MediaWikiIntegrationTestCase {
 			);
 		}
 
-		global $wgSDUProperty, $wgSDUTraversed, $wgSDUUseJobQueue, $wgSDUIgnoredProperties;
+		global $wgSDUProperty, $wgSDUTraversed, $wgSDUIgnoredProperties;
 
 		$wgSDUProperty = 'Semantic Dependency';
 		$wgSDUTraversed = null;
-		$wgSDUUseJobQueue = true;
 		$wgSDUIgnoredProperties = [];
 
 		Hooks::setup();
@@ -81,6 +80,69 @@ abstract class SduIntegrationTestCase extends MediaWikiIntegrationTestCase {
 		$this->editPage(
 			Title::newFromText( 'Semantic Dependency', SMW_NS_PROPERTY ),
 			'{{#set:Has type=Text}}'
+		);
+	}
+
+	/**
+	 * Asserts on the self-update-pending marker's internal state directly
+	 * (via Hooks::getSelfUpdatePendingAttemptForTesting()) rather than only
+	 * inferring it from downstream job counts, which previously let a page
+	 * get falsely marked as self-update-pending without any test noticing.
+	 */
+	protected function assertSelfUpdatePendingAttempt( int $expectedAttempt, Title $title, string $message = '' ): void {
+		$this->assertSame(
+			$expectedAttempt,
+			Hooks::getSelfUpdatePendingAttemptForTesting( $title->getPrefixedDBKey() ),
+			$message !== '' ? $message : (
+				$expectedAttempt === 0
+					? "Expected no self-update-pending marker for \"{$title}\"."
+					: "Expected self-update-pending marker for \"{$title}\" at attempt {$expectedAttempt}."
+			)
+		);
+	}
+
+	/**
+	 * Drains jobs one at a time until exactly one smw.update job has run,
+	 * then stops - unlike run([]), which drains the whole queue and would
+	 * run a self-UpdateJob's own retry immediately after it in this test
+	 * environment (no delayed job support), advancing the self-update-pending
+	 * marker further than intended. Unlike run(['maxJobs' => 1]) alone,
+	 * this does not depend on MediaWiki's own housekeeping jobs (e.g.
+	 * htmlCacheUpdate) happening to be queued after the smw.update job.
+	 */
+	protected function runJobsUntilOneUpdateJobRan(): void {
+		for ( $i = 0; $i < 10; $i++ ) {
+			$status = $this->getServiceContainer()->getJobRunner()->run( [ 'maxJobs' => 1 ] );
+
+			if ( $status['jobs'] === [] ) {
+				$this->fail( 'Job queue ran dry before any smw.update job executed.' );
+			}
+
+			if ( $status['jobs'][0]['type'] === 'smw.update' ) {
+				return;
+			}
+		}
+
+		$this->fail( 'No smw.update job ran within 10 drained jobs.' );
+	}
+
+	/**
+	 * Same as assertSelfUpdatePendingAttempt(), but only asserts the marker
+	 * was not cleared/reset - not the exact attempt count. Use this where an
+	 * unrelated, genuinely empty re-parse (e.g. from SMW's own housekeeping,
+	 * or - in this test environment - an occasional non-deterministic
+	 * SESP ___REVID annotation) may legitimately advance the count further
+	 * per onAfterDataUpdateComplete()'s documented inability to tell that
+	 * case apart from the page's own pending retry (see the "No semantic
+	 * data changes detected" branch's docblock in Hooks.php). What matters
+	 * for the regression this guards against is that the marker survives at
+	 * all, not the exact count.
+	 */
+	protected function assertSelfUpdatePendingAttemptAtLeast( int $minimumAttempt, Title $title, string $message = '' ): void {
+		$this->assertGreaterThanOrEqual(
+			$minimumAttempt,
+			Hooks::getSelfUpdatePendingAttemptForTesting( $title->getPrefixedDBKey() ),
+			$message !== '' ? $message : "Expected self-update-pending marker for \"{$title}\" to be at least attempt {$minimumAttempt}."
 		);
 	}
 
