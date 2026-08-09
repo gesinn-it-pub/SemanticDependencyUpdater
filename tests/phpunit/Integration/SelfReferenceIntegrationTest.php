@@ -94,6 +94,12 @@ class SelfReferenceIntegrationTest extends SduIntegrationTestCase {
 			'confirming the store-timing gap this test is about.'
 		);
 
+		// The genuine self-reference must have marked the page as
+		// self-update-pending (attempt 1) BEFORE the forced job below runs -
+		// this is the internal state the retry mechanism relies on, not just
+		// an inferred side effect of a job later appearing on the queue.
+		$this->assertSelfUpdatePendingAttempt( 1, $title );
+
 		// SDU's self-referencing "Semantic Dependency" should have queued a
 		// forced smw.update UpdateJob for the very same page (the "save the
 		// page twice" behaviour documented on mediawiki.org), alongside
@@ -112,6 +118,17 @@ class SelfReferenceIntegrationTest extends SduIntegrationTestCase {
 			'After SDU\'s self-triggered re-update runs, Derived should ' .
 			'resolve to the Source value set in the same original edit.'
 		);
+
+		// After the forced job's re-parse resolves Derived, draining the
+		// rest of the queue (housekeeping jobs MediaWiki schedules
+		// alongside SDU's own job) produces a couple of further, genuinely
+		// empty re-parses of this same page. Since the marker set above is
+		// still present, those are correctly treated as retries of the same
+		// cycle (see retrySelfUpdateIfWithinTraversalLimit()) and advance it
+		// until SELF_UPDATE_MAX_ATTEMPTS is exceeded, at which point it is
+		// cleared - this is the marker's own bounded cross-process cutoff
+		// working as intended, not a special case for "resolved".
+		$this->assertSelfUpdatePendingAttempt( 0, $title );
 	}
 
 	/**
@@ -148,16 +165,35 @@ class SelfReferenceIntegrationTest extends SduIntegrationTestCase {
 
 		$this->editPage( $title, $wikitext );
 
-		// Drain only the initial self-UpdateJob: its re-parse still finds the
+		$this->assertSelfUpdatePendingAttempt(
+			1,
+			$title,
+			'The initial self-referencing edit must mark the page as ' .
+			'self-update-pending (attempt 1) before any job has run yet.'
+		);
+
+		// Drain jobs until the initial self-UpdateJob itself has run (queue
+		// ordering relative to MediaWiki's own housekeeping jobs, e.g.
+		// htmlCacheUpdate, is not guaranteed). Its re-parse still finds the
 		// dependency page missing, so it re-pushes a retry instead of giving
 		// up, but that retry job itself must not run yet in this step.
-		$this->getServiceContainer()->getJobRunner()->run( [ 'maxJobs' => 1 ] );
+		$this->runJobsUntilOneUpdateJobRan();
 
 		$this->assertSame(
 			[],
 			$this->getPropertyStringValues( $title, 'SDUTestDerived' ),
 			'Sanity check: still unresolved after the first attempt, since the ' .
 			'dependency page does not exist yet.'
+		);
+
+		// The re-parse found an empty diff (dependency still missing), so the
+		// marker must have been refreshed to attempt 2 by
+		// retrySelfUpdateIfWithinTraversalLimit() rather than cleared.
+		$this->assertSelfUpdatePendingAttempt(
+			2,
+			$title,
+			'An empty re-parse while the dependency is still missing must ' .
+			'advance the self-update-pending marker to attempt 2, not clear it.'
 		);
 
 		// Now the dependency becomes available before the retried job runs.
@@ -173,6 +209,15 @@ class SelfReferenceIntegrationTest extends SduIntegrationTestCase {
 			$this->getPropertyStringValues( $title, 'SDUTestDerived' ),
 			'Once the dependency exists, a subsequent retry must resolve ' .
 			'SDUTestDerived without requiring a fresh edit to the original page.'
+		);
+
+		// The retried job's re-parse finally found a genuine change (Derived
+		// now resolves), so the marker must be cleared afterwards.
+		$this->assertSelfUpdatePendingAttempt(
+			0,
+			$title,
+			'Once the store-timing gap closes and Derived resolves, the ' .
+			'self-update-pending marker must be cleared.'
 		);
 	}
 
@@ -254,6 +299,16 @@ class SelfReferenceIntegrationTest extends SduIntegrationTestCase {
 			$totalSmwUpdateJobs,
 			'Without a durable cache, the marker can never be read back, so ' .
 			'no retry job beyond the initial self-UpdateJob should be pushed.'
+		);
+
+		$this->assertSelfUpdatePendingAttempt(
+			0,
+			$title,
+			'With a non-durable cache, getSelfUpdatePendingAttemptForTesting() ' .
+			'must read back 0 exactly as if no marker had ever been set - ' .
+			'EmptyBagOStuff::get() always returns false regardless of what ' .
+			'was set(), confirming the documented silent-failure mode directly ' .
+			'rather than only inferring it from the job count above.'
 		);
 	}
 
