@@ -4,8 +4,6 @@ namespace SDU;
 
 use DeferredUpdates;
 use MediaWiki\MediaWikiServices;
-use MediaWiki\Status\Status;
-use MediaWiki\User\User;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
 use SMW\MediaWiki\Jobs\UpdateJob;
@@ -14,6 +12,8 @@ use SMW\Services\ServicesFactory as ApplicationFactory;
 use SMW\Store;
 use SMWDIBlob;
 use SMWQueryProcessor;
+use Status;
+use User;
 use WikiPage;
 
 class Hooks {
@@ -252,8 +252,15 @@ class Hooks {
 	 * silently never retry - no error, just quietly non-functional. A
 	 * warning is logged once per request the first time this is detected,
 	 * so the reason "Update Self" isn't retrying is at least discoverable.
+	 *
+	 * No return type hint: BagOStuff lives in the global namespace up to
+	 * MediaWiki 1.42 and moved to Wikimedia\ObjectCache\ in 1.43 (which
+	 * class_alias()es the old global name back for compatibility, but only
+	 * in that direction) - this branch declares support for MediaWiki
+	 * >= 1.39, and PHP has no type alias mechanism to declare "whichever
+	 * FQCN this MW version uses".
 	 */
-	private static function getSelfUpdateMarkerCache(): \Wikimedia\ObjectCache\BagOStuff {
+	private static function getSelfUpdateMarkerCache() {
 		static $warned = false;
 
 		$cache = MediaWikiServices::getInstance()->getMainObjectStash();
