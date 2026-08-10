@@ -3,7 +3,11 @@
 namespace SDU;
 
 use DeferredUpdates;
+use EditPage;
+use Html;
 use MediaWiki\MediaWikiServices;
+use OutputPage;
+use ParserOutput;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
 use SMW\MediaWiki\Jobs\UpdateJob;
@@ -228,7 +232,7 @@ class Hooks {
 	 * derived FROM this sequence's length (see that constant) rather than
 	 * being tuned independently of it.
 	 */
-	private const SELF_UPDATE_RETRY_DELAY_SECONDS = [ 1, 2, 3, 5 ];
+	private const SELF_UPDATE_RETRY_DELAY_SECONDS = [ 1, 1, 2, 3 ];
 
 	/**
 	 * Maximum number of retry attempts for a single self-update cycle -
@@ -350,6 +354,60 @@ class Hooks {
 		);
 	}
 
+	private const CONSECUTIVE_EMPTY_DIFFS_CACHE_NAMESPACE = 'sdu:consecutive-empty-diffs';
+
+	/**
+	 * How many CONSECUTIVE empty diffs in a row end a self-update cycle
+	 * early, before SELF_UPDATE_MAX_ATTEMPTS is reached.
+	 *
+	 * A single empty diff is genuinely ambiguous (see
+	 * retrySelfUpdateIfWithinTraversalLimit()'s own docblock): it could mean
+	 * the derived value has already stabilized, OR that the store write it
+	 * depends on hasn't propagated yet (real replication lag), in which case
+	 * the VERY NEXT attempt would find a real change. Bailing out on the
+	 * FIRST empty diff would reintroduce exactly the bug "Update Self" exists
+	 * to prevent - a page whose derived value never gets the chance to
+	 * resolve.
+	 *
+	 * TWO consecutive empty diffs are a much stronger signal: replication lag
+	 * that hasn't resolved after one full retry round (delay + re-parse) is
+	 * far more likely to mean the value is simply stable now, not that it
+	 * needs a THIRD attempt - verified live: pages with several genuine,
+	 * non-empty passes in a row (multiple dependent subobjects settling one
+	 * after another) reliably stop producing new diffs within one or two
+	 * retries once they're actually done, not somewhere later in
+	 * SELF_UPDATE_MAX_ATTEMPTS's full budget. Ending the cycle here, rather
+	 * than always running out the full attempt budget regardless of whether
+	 * anything is still changing, is what actually fixes the "page keeps
+	 * reloading long after the visible content is already correct" symptom -
+	 * verified live against a real multi-answer PageForms save that
+	 * previously reloaded 5 times before this constant existed, with the
+	 * last 3 of those attempts each finding nothing.
+	 */
+	private const MAX_CONSECUTIVE_EMPTY_DIFFS = 2;
+
+	/**
+	 * @return int the CURRENT consecutive-empty-diff count, i.e. the count
+	 *  BEFORE this call's own increment - so the caller can compare it
+	 *  against MAX_CONSECUTIVE_EMPTY_DIFFS to decide whether THIS diff is the
+	 *  one that ends the cycle
+	 */
+	private static function incrementConsecutiveEmptyDiffs( string $id ): int {
+		$cache = self::getSelfUpdateMarkerCache();
+		$key = smwfCacheKey( self::CONSECUTIVE_EMPTY_DIFFS_CACHE_NAMESPACE, $id );
+
+		$count = (int)$cache->get( $key ) + 1;
+		$cache->set( $key, $count, self::SELF_UPDATE_PENDING_TTL_SECONDS );
+
+		return $count;
+	}
+
+	private static function clearConsecutiveEmptyDiffs( string $id ): void {
+		self::getSelfUpdateMarkerCache()->delete(
+			smwfCacheKey( self::CONSECUTIVE_EMPTY_DIFFS_CACHE_NAMESPACE, $id )
+		);
+	}
+
 	/**
 	 * Test seam exposing the self-update-pending marker's current attempt
 	 * count (0 if no marker is set), so tests can assert on this internal
@@ -370,6 +428,120 @@ class Hooks {
 		self::getSelfUpdateMarkerCache()->delete(
 			smwfCacheKey( self::SELF_UPDATE_PENDING_CACHE_NAMESPACE, $id )
 		);
+
+		// The cycle this attempt count belonged to is now over (either
+		// resolved or abandoned) - clear the reload-pending marker directly
+		// rather than tracking "ended" as a separate state alongside it: an
+		// earlier version of this method kept the two as independent cache
+		// entries with independent TTLs, which could (and, verified live,
+		// did) leave a stale "cycle ended" marker from a PREVIOUS revision's
+		// cycle still active when a NEW revision's cycle started moments
+		// later, wrongly suppressing that brand new cycle's own reload
+		// prompt. Deleting the one marker that getReloadPendingRevId() itself
+		// reads removes the second state entirely, so there is nothing left
+		// that can go stale independently of it.
+		self::getSelfUpdateMarkerCache()->delete(
+			smwfCacheKey( self::RELOAD_PENDING_CACHE_NAMESPACE, $id )
+		);
+
+		// The empty-diff streak counted toward MAX_CONSECUTIVE_EMPTY_DIFFS
+		// belonged to this now-ended cycle too - a LATER, unrelated cycle for
+		// this same page must start its own streak from zero, not inherit
+		// one left over from a cycle that already finished.
+		self::clearConsecutiveEmptyDiffs( $id );
+	}
+
+	/**
+	 * TTL for the reload-pending marker set in markReloadPending(). Only
+	 * needs to outlast the self-update cycle itself (bounded by
+	 * SELF_UPDATE_MAX_ATTEMPTS retries, each delayed by at most the largest
+	 * step in SELF_UPDATE_RETRY_DELAY_SECONDS) plus however long the
+	 * editor's browser takes to poll again - not an open-ended session
+	 * window, unlike the mechanism this replaces.
+	 */
+	private const RELOAD_PENDING_TTL_SECONDS = 60;
+
+	private const RELOAD_PENDING_CACHE_NAMESPACE = 'sdu:reload-pending';
+
+	/**
+	 * Marks a self-referencing page ($isSelfReferencing in
+	 * onAfterDataUpdateComplete()) as needing a client-side reload for the
+	 * given revision, the next time that revision's page is displayed.
+	 *
+	 * Why this is needed: SMW's own PostProcHandler decides whether to show
+	 * its reload prompt by re-deriving the save's ChangeDiff from a cache
+	 * keyed only by page (SMW\SQLStore\ChangeOp\ChangeDiff::CACHE_NAMESPACE +
+	 * subject hash - one slot per page, not per revision or request). The
+	 * forced self-UpdateJob this same onAfterDataUpdateComplete() call is
+	 * about to queue (see rebuildData() below) re-parses this very page
+	 * again - by design, per "Update Self" - and its own AfterDataUpdateComplete
+	 * call overwrites that single cache slot with an empty diff (nothing
+	 * changed on that second pass), before the editor's browser ever gets to
+	 * request the page again. PostProcHandler::checkDiff() then reads that
+	 * empty diff instead of this save's real one and reports "no user
+	 * change", so SMW's own postproc div - and the reload prompt it would
+	 * have shown - never renders, even though a real, non-ignored property
+	 * did change. This marker preserves that "a real change just happened"
+	 * fact through the self-UpdateJob's overwrite, entirely independent of
+	 * ChangeDiff's cache.
+	 *
+	 * Keyed by revision ID, not by an absolute expiry timestamp: an earlier
+	 * version of this mechanism kept a session-scoped authorization
+	 * alongside a time-based marker, and re-derived a fresh expiry on every
+	 * request from a client with no stable session between requests
+	 * (observed live, not just in tests) - which the client read as "a new
+	 * save cycle started" and reset its own retry-attempt count for,
+	 * silently defeating the backoff dialog while the page kept reloading
+	 * anyway. The revision ID that triggered this exact cycle is stable
+	 * across however many requests/sessions poll for it - it cannot change
+	 * except by a genuinely new save producing a genuinely new revision -
+	 * so it is what the client and server actually need to agree on "is
+	 * this still the same cycle", not a value derived from request timing.
+	 */
+	private static function markReloadPending( string $id, int $revId ): void {
+		$cache = self::getSelfUpdateMarkerCache();
+		$key = smwfCacheKey( self::RELOAD_PENDING_CACHE_NAMESPACE, $id );
+
+		self::debugLog( "[SDU] markReloadPending: {$id} revId={$revId}" );
+
+		$cache->set( $key, $revId, self::RELOAD_PENDING_TTL_SECONDS );
+	}
+
+	/**
+	 * @return int|false the revision ID a reload is pending for, or false if
+	 *  none is pending
+	 */
+	private static function getReloadPendingRevId( string $id ) {
+		return self::getSelfUpdateMarkerCache()->get(
+			smwfCacheKey( self::RELOAD_PENDING_CACHE_NAMESPACE, $id )
+		);
+	}
+
+	/**
+	 * Test seam mirroring getSelfUpdatePendingAttemptForTesting().
+	 *
+	 * @internal for tests only
+	 */
+	public static function isReloadPendingForTesting( string $id, int $revId ): bool {
+		return self::getReloadPendingRevId( $id ) === $revId;
+	}
+
+	/**
+	 * @return bool whether a reload is currently pending for the EXACT
+	 *  given revision of the given page - i.e. whether ext.sdu.reload.js
+	 *  (via SDU\Api\ApiSduSelfUpdateStatus) is still safe to keep polling,
+	 *  or the self-update cycle it is waiting on has ended (resolved, or
+	 *  exhausted SELF_UPDATE_MAX_ATTEMPTS) and it is finally safe to reload.
+	 *
+	 * Public production entry point for the same underlying check
+	 * isReloadPendingForTesting() exposes for tests - kept as a separate
+	 * method (both simply delegate to getReloadPendingRevId()) rather than
+	 * widening that method's visibility or reusing the test seam directly
+	 * from production code, so the test-only seam's name and contract can
+	 * keep evolving independently of what production callers rely on.
+	 */
+	public static function isSelfUpdateReloadPending( string $id, int $revId ): bool {
+		return self::getReloadPendingRevId( $id ) === $revId;
 	}
 
 	/**
@@ -429,6 +601,26 @@ class Hooks {
 
 		if ( $attempt > self::SELF_UPDATE_MAX_ATTEMPTS ) {
 			self::debugLog( "[SDU] <-- Already traversed, not retrying self-update" );
+			self::clearSelfUpdatePending( $id );
+			return;
+		}
+
+		// This IS an empty diff (that's why this method was called at all -
+		// see onAfterDataUpdateComplete()'s "No semantic data changes
+		// detected" branch, its only caller). See
+		// MAX_CONSECUTIVE_EMPTY_DIFFS's own docblock for why two of these IN
+		// A ROW - not the attempt limit alone - end the cycle early: still
+		// bounded (this can never run longer than SELF_UPDATE_MAX_ATTEMPTS
+		// would anyway, since $attempt already can't exceed it past this
+		// point), but stops as soon as the value has demonstrably settled,
+		// rather than always waiting out the full budget.
+		$consecutiveEmptyDiffs = self::incrementConsecutiveEmptyDiffs( $id );
+
+		if ( $consecutiveEmptyDiffs >= self::MAX_CONSECUTIVE_EMPTY_DIFFS ) {
+			self::debugLog(
+				"[SDU] <-- {$consecutiveEmptyDiffs} consecutive empty diffs, " .
+				"value has settled - ending self-update cycle early"
+			);
 			self::clearSelfUpdatePending( $id );
 			return;
 		}
@@ -671,6 +863,14 @@ class Hooks {
 			// boundaries, only within a single one.
 			$attempt = self::markSelfUpdatePending( $id );
 
+			// A REAL diff just landed - the value is still actively changing,
+			// so any consecutive-empty-diff streak counted so far no longer
+			// reflects "settled", it reflects a gap BEFORE this real change
+			// arrived. Reset it: MAX_CONSECUTIVE_EMPTY_DIFFS should count
+			// empty diffs following the LATEST real change, not accumulate
+			// across one that came in between.
+			self::clearConsecutiveEmptyDiffs( $id );
+
 			// The above comment describes the INTENT correctly, but until
 			// this check was added, nothing here actually ENFORCED it: the
 			// attempt count accumulated exactly as described, but this
@@ -705,6 +905,16 @@ class Hooks {
 				self::rebuildData( true, $wikiPageValues, $subject );
 				return true;
 			}
+
+			// This is also the one point where we still know a real,
+			// non-ignored change happened on this exact save - see
+			// markReloadPending()'s docblock for why the self-UpdateJob
+			// about to be queued below would otherwise erase that fact
+			// before the editor's browser can act on it. Anchored to
+			// $title's OWN latest revision ID (the one this exact save just
+			// created), not e.g. time() - see markReloadPending() for why
+			// that distinction is the whole point of this redesign.
+			self::markReloadPending( $id, $title->getLatestRevID() );
 		} else {
 			// A genuine, non-ignored change landed on a page that is not (or
 			// no longer) self-referencing, but may still have a
@@ -827,6 +1037,81 @@ class Hooks {
 				}
 			);
 		}
+	}
+
+	/**
+	 * Renders a client-side reload prompt for a self-referencing page whose
+	 * real, non-ignored change would otherwise be masked by its own forced
+	 * self-UpdateJob before SMW's own PostProcHandler ever gets to show one -
+	 * see markReloadPending()'s docblock for the mechanism this compensates
+	 * for.
+	 *
+	 * Gated on MediaWiki's own post-edit cookie alone (Article::view()'s
+	 * `wpPostEdit{revId}`, the same one PostProcHandler checks) - not on any
+	 * SDU-managed session marker. That cookie is already exactly what this
+	 * needs: single-use per revision (deleted after the first read, so a
+	 * second unrelated visitor loading this page from a link never sees it),
+	 * and stable across however many times ext.sdu.reload.js's own retries
+	 * re-request the SAME revision's rendering - MediaWiki does not delete
+	 * the cookie until the FULL response for that read has been sent, and
+	 * every retry here is the browser's own `action=purge` + reload of that
+	 * SAME already-rendered response's follow-up, not a fresh Article::view()
+	 * read of a NEW revision. An earlier version of this mechanism kept a
+	 * separate, session-scoped "authorization" marker to survive across
+	 * retries instead - that marker re-derived its own expiry from "now" on
+	 * every request from a client with no stable session between requests,
+	 * which the client misread as "a new save cycle started" and silently
+	 * broke the backoff dialog for. Reading the cookie directly on every
+	 * render, rather than caching an "authorized" bit derived from it once,
+	 * has no equivalent failure mode: the cookie's own presence/absence IS
+	 * the fact this needs, not a derived approximation of it.
+	 *
+	 * Renders on EITHER of two conditions: the cookie (this render is the
+	 * editor's own, for this exact revision), OR the reload-pending marker
+	 * already being set for this exact revision (a retry's own
+	 * `action=purge` reload of that same response, e.g. after the cookie's
+	 * single-use window has technically closed but the cycle is still
+	 * genuinely running) - see getReloadPendingRevId(). Once
+	 * clearSelfUpdatePending() has cleared that marker (the cycle resolved or
+	 * hit its attempt limit), this second condition alone already stops
+	 * matching - there is no separate "cycle ended" state to check here.
+	 */
+	public static function onOutputPageParserOutput( OutputPage $outputPage, ParserOutput $parserOutput ) {
+		$title = $outputPage->getTitle();
+
+		if ( $title === null || !$title->exists() ) {
+			return true;
+		}
+
+		$id = $title->getPrefixedDBKey();
+		$revId = $title->getLatestRevID();
+
+		$cookieKey = EditPage::POST_EDIT_COOKIE_KEY_PREFIX . $revId;
+		$request = $outputPage->getContext()->getRequest();
+
+		$authorized = $request->getCookie( $cookieKey ) !== null
+			|| self::getReloadPendingRevId( $id ) === $revId;
+
+		if ( !$authorized ) {
+			return true;
+		}
+
+		self::debugLog( "[SDU] --> Emitting client retry prompt: {$id} revId={$revId}" );
+
+		$outputPage->addModules( 'ext.sdu.reload' );
+
+		$outputPage->addHtml(
+			Html::rawElement(
+				'div',
+				[
+					'class' => 'sdu-reload-pending',
+					'data-title' => $id,
+					'data-revision-id' => $revId,
+				]
+			)
+		);
+
+		return true;
 	}
 
 }

@@ -1,0 +1,7 @@
+{
+	"@metadata": {
+		"authors": []
+	},
+	"sdu-reload-timeout": "This page may still be updating in the background. Reload later to see the latest content.",
+	"apihelp-sduselfupdatestatus-example-1": "Check whether a self-update reload is still pending for revision 123 of page \"Foo\"."
+}
