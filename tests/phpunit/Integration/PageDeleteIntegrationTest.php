@@ -2,7 +2,7 @@
 
 namespace SDU\Tests\Integration;
 
-use MediaWiki\Title\Title;
+use Title;
 
 /**
  * Verifies that deleting a page which itself declares a Semantic Dependency

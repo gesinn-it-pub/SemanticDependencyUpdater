@@ -16,3 +16,10 @@ parameters:
 		- ../SemanticMediaWiki/Tesa
 		- ../../includes
 		- ../../tests/phpunit
+	ignoreErrors:
+		# SMW defines these via a dynamic define($name, $value) call rather than
+		# a literal define('NAME', ...), so PHPStan can't discover them
+		# statically regardless of scanDirectories - both exist at runtime
+		# (verified against a real SMW 5.1.0 installation).
+		- '#^Constant SMW_NS_PROPERTY not found\.$#'
+		- '#^Constant SMW_VERSION not found\.$#'

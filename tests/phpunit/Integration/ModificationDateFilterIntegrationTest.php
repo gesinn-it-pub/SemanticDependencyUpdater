@@ -2,7 +2,7 @@
 
 namespace SDU\Tests\Integration;
 
-use MediaWiki\Title\Title;
+use Title;
 
 /**
  * Reproduces the "revision ID change is good, but must not trigger UpdateJob

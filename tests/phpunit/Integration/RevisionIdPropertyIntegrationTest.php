@@ -2,7 +2,7 @@
 
 namespace SDU\Tests\Integration;
 
-use MediaWiki\Title\Title;
+use Title;
 
 /**
  * Verifies $wgSDUIgnoredProperties against the real-world case that motivated
@@ -102,7 +102,7 @@ class RevisionIdPropertyIntegrationTest extends SduIntegrationTestCase {
 		$updater = $page->newPageUpdater( $this->getTestSysop()->getAuthority() );
 		$updater->setForceEmptyRevision( true );
 		$updater->saveRevision(
-			\MediaWiki\CommentStore\CommentStoreComment::newUnsavedComment( 'null revision' )
+			\CommentStoreComment::newUnsavedComment( 'null revision' )
 		);
 	}
 

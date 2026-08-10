@@ -2,9 +2,9 @@
 
 namespace SDU\Tests\Integration;
 
-use MediaWiki\Title\Title;
 use SDU\Hooks;
 use SMW\DIWikiPage;
+use Title;
 
 /**
  * Reproduces the "Update Self" scenario documented at

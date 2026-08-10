@@ -2,9 +2,9 @@
 
 namespace SDU\Tests\Integration;
 
-use MediaWiki\Title\Title;
 use MediaWikiIntegrationTestCase;
 use SDU\Hooks;
+use Title;
 
 /**
  * Common setup for SDU's real (non-mocked) MediaWiki+SMW integration tests.
