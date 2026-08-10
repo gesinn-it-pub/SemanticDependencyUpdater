@@ -29,6 +29,9 @@
 		],
 		"ArticleDelete": [
 			"SDU\\Hooks::onPageDelete"
+		],
+		"OutputPageParserOutput": [
+			"SDU\\Hooks::onOutputPageParserOutput"
 		]
 	},
 	"callback": "SDU\\Hooks::setup",
@@ -40,6 +43,27 @@
 			"value": [ "___REVID" ],
 			"description": "Property names whose changes alone must not trigger SDU. Defaults to SemanticExtraSpecialProperties' Revision ID property (___REVID), which - when enabled via $sespgEnabledPropertyList - changes on every single edit regardless of semantic content, verified empirically against a real installation. Harmless to keep if SemanticExtraSpecialProperties is not installed or ___REVID is not enabled."
 		}
+	},
+	"ResourceModules": {
+		"ext.sdu.reload": {
+			"scripts": "sdu/ext.sdu.reload.js",
+			"styles": "sdu/ext.sdu.reload.css",
+			"messages": [
+				"sdu-reload-timeout"
+			],
+			"dependencies": [
+				"mediawiki.api",
+				"mediawiki.storage",
+				"jquery.spinner"
+			]
+		}
+	},
+	"ResourceFileModulePaths": {
+		"localBasePath": "res",
+		"remoteExtPath": "SemanticDependencyUpdater/res"
+	},
+	"MessagesDirs": {
+		"SemanticDependencyUpdater": [ "i18n" ]
 	},
 	"manifest_version": 2
 }
