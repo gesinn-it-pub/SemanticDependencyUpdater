@@ -1,6 +1,0 @@
-{
-	"@metadata": {
-		"authors": []
-	},
-	"sdu-reload-timeout": "Notice shown when the client-side reload triggered by SDU's \"Update Self\" reload-pending marker (see SDU\\Hooks::onOutputPageParserOutput()) gives up retrying after its backoff budget is exhausted."
-}

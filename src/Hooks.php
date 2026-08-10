@@ -3,11 +3,7 @@
 namespace SDU;
 
 use DeferredUpdates;
-use EditPage;
-use Html;
 use MediaWiki\MediaWikiServices;
-use OutputPage;
-use ParserOutput;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
 use SMW\MediaWiki\Jobs\UpdateJob;
@@ -231,16 +227,6 @@ class Hooks {
 	 * sequence's length is never reached, since SELF_UPDATE_MAX_ATTEMPTS is
 	 * derived FROM this sequence's length (see that constant) rather than
 	 * being tuned independently of it.
-	 *
-	 * Deliberately NOT coupled to ext.sdu.reload.js's own client-side poll
-	 * backoff (BACKOFF_SEQUENCE there): that sequence governs an entirely
-	 * separate concern - how often the EDITOR'S BROWSER re-checks whether a
-	 * reload is warranted - and has its own reasons to be tuned
-	 * independently (e.g. not hammering the server with `action=purge`
-	 * calls from many clients). Coupling the two here previously made this
-	 * delay's own values a compromise between "fast enough for real lag"
-	 * and "matches what a client poll interval should look like", which
-	 * are unrelated goals.
 	 */
 	private const SELF_UPDATE_RETRY_DELAY_SECONDS = [ 1, 2, 3, 5 ];
 
@@ -355,10 +341,6 @@ class Hooks {
 
 		self::debugLog( "[SDU] markSelfUpdatePending: {$id} attempt={$attempt}" );
 
-		if ( $attempt === 1 ) {
-			self::markSelfUpdateCycleStarted( $id );
-		}
-
 		return $attempt;
 	}
 
@@ -366,88 +348,6 @@ class Hooks {
 		return (int)self::getSelfUpdateMarkerCache()->get(
 			smwfCacheKey( self::SELF_UPDATE_PENDING_CACHE_NAMESPACE, $id )
 		);
-	}
-
-	private const SELF_UPDATE_CYCLE_CACHE_NAMESPACE = 'sdu:self-update-cycle';
-	private const SELF_UPDATE_CYCLE_STATE_STARTED = 'started';
-	private const SELF_UPDATE_CYCLE_STATE_ENDED = 'ended';
-
-	/**
-	 * Marks that a self-update cycle has actually started for this page, so
-	 * isReloadPending() (see below) can tell "cycle never started" apart
-	 * from "cycle started and has since finished" - both of which otherwise
-	 * look identical as getSelfUpdateAttempt() === 0 (see that method's own
-	 * docblock and retrySelfUpdateIfWithinTraversalLimit()'s early return).
-	 * A plain "does this marker exist" boolean cannot express this: the
-	 * marker's own absence is what "never started" already looks like, so
-	 * "started, then finished" needs a distinct stored STATE, not just
-	 * presence/absence - see markSelfUpdateCycleEnded() for the other half.
-	 *
-	 * Deliberately set only once, on the cycle's first attempt
-	 * (markSelfUpdatePending()'s own $attempt === 1 case) rather than on
-	 * every retry: unlike the self-update-pending marker itself, this
-	 * marker's lifetime is meant to span the WHOLE cycle from its first
-	 * attempt to its resolution, not to keep resetting alongside each
-	 * retry - re-marking it on every attempt would extend its TTL
-	 * indefinitely for as long as retries keep landing, the exact same
-	 * problem the absolute-expiry marker in markReloadPending() exists to
-	 * avoid, and there is no need to solve it twice.
-	 *
-	 * Shares RELOAD_PENDING_TTL_SECONDS as its TTL rather than a new,
-	 * separately-tuned constant: this marker's only purpose is to keep
-	 * isReloadPending() correctly signaling "still going" for as long as
-	 * the client's own retry loop can possibly still be asking about it,
-	 * so its lifetime should match that window exactly, not drift from it.
-	 */
-	private static function markSelfUpdateCycleStarted( string $id ): void {
-		self::debugLog( "[SDU] markSelfUpdateCycleStarted: {$id}" );
-		self::getSelfUpdateMarkerCache()->set(
-			smwfCacheKey( self::SELF_UPDATE_CYCLE_CACHE_NAMESPACE, $id ),
-			self::SELF_UPDATE_CYCLE_STATE_STARTED,
-			self::RELOAD_PENDING_TTL_SECONDS
-		);
-	}
-
-	/**
-	 * The actual early-exit signal: called alongside clearSelfUpdatePending()
-	 * (both its "resolved" and "attempt limit hit" call sites - see that
-	 * method), this OVERWRITES rather than deletes the cycle marker, so
-	 * isReloadPending() can distinguish this case ("started, then ended") from
-	 * "never started" (no marker at all) even though both leave
-	 * getSelfUpdateAttempt() at 0. Kept alive for the SAME remaining TTL as
-	 * the marker it overwrites (not a fresh one) - this is still describing
-	 * the same save's cycle, so it must not outlive that cycle's own window.
-	 */
-	private static function markSelfUpdateCycleEnded( string $id ): void {
-		$cache = self::getSelfUpdateMarkerCache();
-		$key = smwfCacheKey( self::SELF_UPDATE_CYCLE_CACHE_NAMESPACE, $id );
-
-		self::debugLog( "[SDU] markSelfUpdateCycleEnded: {$id} currentState=" . var_export( $cache->get( $key ), true ) );
-
-		if ( $cache->get( $key ) === false ) {
-			// Nothing to mark as ended - the cycle never started in the
-			// first place (e.g. clearSelfUpdatePending() reached from
-			// onAfterDataUpdateComplete()'s "not self-referencing (anymore)"
-			// branch, which runs regardless of whether a cycle was ever
-			// actually pending). Leave the marker absent, not "ended": an
-			// absent marker and an "ended" marker mean different things to
-			// isReloadPending() only in combination with an active
-			// reload-pending window, and a cycle that never started should
-			// not suppress a window it was never part of.
-			return;
-		}
-
-		$cache->set( $key, self::SELF_UPDATE_CYCLE_STATE_ENDED, self::RELOAD_PENDING_TTL_SECONDS );
-	}
-
-	private static function getSelfUpdateCycleState( string $id ) {
-		return self::getSelfUpdateMarkerCache()->get(
-			smwfCacheKey( self::SELF_UPDATE_CYCLE_CACHE_NAMESPACE, $id )
-		);
-	}
-
-	private static function wasSelfUpdateCycleStartedAndHasSinceEnded( string $id ): bool {
-		return self::getSelfUpdateCycleState( $id ) === self::SELF_UPDATE_CYCLE_STATE_ENDED;
 	}
 
 	/**
@@ -470,188 +370,6 @@ class Hooks {
 		self::getSelfUpdateMarkerCache()->delete(
 			smwfCacheKey( self::SELF_UPDATE_PENDING_CACHE_NAMESPACE, $id )
 		);
-
-		// The cycle this attempt count belonged to is now over (either
-		// resolved or abandoned) - record that explicitly so isReloadPending()
-		// can stop reporting "still going" for a cycle that just ended,
-		// without waiting out the rest of RELOAD_PENDING_TTL_SECONDS. See
-		// markSelfUpdateCycleEnded()'s docblock for why this is a distinct
-		// state, not just deleting the marker.
-		self::markSelfUpdateCycleEnded( $id );
-	}
-
-	/**
-	 * TTL for the reload-pending marker set in markReloadPending(). Only
-	 * needs to outlast the gap between the triggering save's HTTP response
-	 * and the editor's own next request for the same page (the one carrying
-	 * MediaWiki's post-edit cookie) - unlike SELF_UPDATE_PENDING_TTL_SECONDS,
-	 * there is no job-queue retry cycle here to outlast.
-	 */
-	private const RELOAD_PENDING_TTL_SECONDS = 60;
-
-	private const RELOAD_PENDING_CACHE_NAMESPACE = 'sdu:reload-pending';
-
-	/**
-	 * Marks a self-referencing page ($isSelfReferencing in
-	 * onAfterDataUpdateComplete()) as needing a client-side reload the next
-	 * time its editor's own post-edit request for it is displayed.
-	 *
-	 * Why this is needed: SMW's own PostProcHandler decides whether to show
-	 * that reload prompt by re-deriving the save's ChangeDiff from a cache
-	 * keyed only by page (SMW\SQLStore\ChangeOp\ChangeDiff::CACHE_NAMESPACE +
-	 * subject hash - one slot per page, not per revision or request). The
-	 * forced self-UpdateJob this same onAfterDataUpdateComplete() call is
-	 * about to queue (see rebuildData() below) re-parses this very page
-	 * again - by design, per "Update Self" - and its own AfterDataUpdateComplete
-	 * call overwrites that single cache slot with an empty diff (nothing
-	 * changed on that second pass), before the editor's browser ever gets to
-	 * request the page again. PostProcHandler::checkDiff() then reads that
-	 * empty diff instead of this save's real one and reports "no user
-	 * change", so SMW's own postproc div - and the reload prompt it would
-	 * have shown - never renders, even though a real, non-ignored property
-	 * did change. This marker preserves that "a real change just happened"
-	 * fact through the self-UpdateJob's overwrite, entirely independent of
-	 * ChangeDiff's cache: see onOutputPageParserOutput() for where it is
-	 * read back.
-	 *
-	 * Stores an ABSOLUTE expiry timestamp as the cache value, computed from
-	 * the first call's own time, rather than relying on the cache backend's
-	 * TTL alone: "Update Self" can - and, verified against a real
-	 * self-referencing page under retry, reliably does - call this multiple
-	 * times for the same page within its own bounded retry cycle (once per
-	 * SELF_UPDATE_MAX_ATTEMPTS attempt, each finding a fresh non-empty diff
-	 * as the derived value keeps changing pass to pass). A plain
-	 * $cache->set(..., TTL) call on each of those would restart the TTL
-	 * clock every time, so the reload-pending window could stretch out for
-	 * as long as SDU's own retries keep landing - defeating the whole point
-	 * of a bounded client-side retry window. Storing (and never advancing)
-	 * an absolute expiry instead means isReloadPending() reflects "within
-	 * RELOAD_PENDING_TTL_SECONDS of the FIRST self-referencing change in
-	 * this cycle", regardless of how many further times this method itself
-	 * gets called before that window closes.
-	 */
-	private static function markReloadPending( string $id ): void {
-		$cache = self::getSelfUpdateMarkerCache();
-		$key = smwfCacheKey( self::RELOAD_PENDING_CACHE_NAMESPACE, $id );
-
-		if ( $cache->get( $key ) !== false ) {
-			// Already pending from an earlier call within its own window -
-			// leave the existing expiry alone (see this method's docblock).
-			return;
-		}
-
-		$expiresAt = time() + self::RELOAD_PENDING_TTL_SECONDS;
-		self::debugLog( "[SDU] markReloadPending: {$id} expiresAt={$expiresAt}" );
-
-		// Cache TTL is set generously beyond the expiry value stored in the
-		// payload - the payload's own expiresAt is what isReloadPending()
-		// actually enforces; the backend TTL here only needs to guarantee
-		// the entry hasn't been evicted before that check can run.
-		$cache->set( $key, $expiresAt, self::RELOAD_PENDING_TTL_SECONDS + 30 );
-	}
-
-	private static function isReloadPending( string $id ): bool {
-		$expiresAt = self::getSelfUpdateMarkerCache()->get(
-			smwfCacheKey( self::RELOAD_PENDING_CACHE_NAMESPACE, $id )
-		);
-		$result = $expiresAt !== false && $expiresAt > time();
-
-		// The reload-pending marker's own TTL is a fixed, generous ceiling
-		// (see RELOAD_PENDING_TTL_SECONDS's docblock) that has no way to
-		// know when the self-update cycle it was set for actually finishes -
-		// it only knows the cycle STARTED. This is the early-exit signal:
-		// once the cycle has demonstrably started AND then finished
-		// (wasSelfUpdateCycleStartedAndHasSinceEnded(), set by
-		// markSelfUpdateCycleEnded() alongside clearSelfUpdatePending()'s
-		// own two call sites - "already traversed"/resolved, and the
-		// attempt-limit branch), there is nothing left to wait for, so this
-		// overrides the marker's own not-yet-expired TTL to false rather
-		// than waiting out the rest of it.
-		//
-		// Deliberately keyed off "cycle started, now not started" - NOT off
-		// getSelfUpdateAttempt() === 0 directly, which is ALSO true before
-		// the cycle has ever started (see markSelfUpdateCycleStarted()'s
-		// docblock for why that ambiguity is exactly what the cycle-started
-		// marker exists to resolve). A page that is still within its
-		// reload-pending window but whose self-update cycle has not started
-		// yet (the marker not having been set by onAfterDataUpdateComplete()
-		// for this exact save) must NOT have this override fire - only a
-		// cycle that is known to have started and since ended should.
-		$cycleEnded = self::wasSelfUpdateCycleStartedAndHasSinceEnded( $id );
-
-		if ( $result && $cycleEnded ) {
-			$result = false;
-		}
-
-		self::debugLog( "[SDU] isReloadPending: {$id} result=" . ( $result ? 'true' : 'false' ) . " expiresAt=" . var_export( $expiresAt, true ) . " now=" . time() . " cycleState=" . var_export( self::getSelfUpdateCycleState( $id ), true ) );
-		return $result;
-	}
-
-	private const RELOAD_AUTHORIZED_CACHE_NAMESPACE = 'sdu:reload-authorized';
-
-	/**
-	 * Authorizes ext.sdu.reload.js's client-side retry loop to keep asking
-	 * for a reload prompt on this page, independent of MediaWiki's post-edit
-	 * cookie.
-	 *
-	 * Why this exists separately from the reload-pending marker: MediaWiki
-	 * deletes its post-edit cookie the first time Article::view() reads it
-	 * (see EditPage::setPostEditCookie() / Article::view()'s
-	 * `$request->response()->clearCookie( $cookieKey )`) - it is meant for
-	 * exactly one post-save request, not a retry loop. ext.sdu.reload.js's
-	 * own retries are each a fresh page request the browser makes on its
-	 * own, arriving with that cookie already gone. Without this separate,
-	 * SDU-managed marker, onOutputPageParserOutput()'s cookie check would
-	 * reject every retry after the first, and the backoff loop the client
-	 * runs would have nothing left to poll against.
-	 *
-	 * Keyed by session, not just page: this page can genuinely be requested
-	 * concurrently by a second, unrelated visitor (e.g. following a link)
-	 * while the editor's own retry window is still open. A page-only key
-	 * would authorize that unrelated visitor's browser to also start
-	 * reloading itself, which is exactly what the post-edit cookie check
-	 * above exists to prevent for the *first* render - this key must
-	 * preserve that same restriction across the retries the first render
-	 * kicks off, not just for that first render itself.
-	 *
-	 * Stores an absolute expiry rather than a plain TTL, for the same reason
-	 * as markReloadPending(): a session with no stable session cookie
-	 * between requests (observed in practice for an anonymous/test client -
-	 * MediaWiki mints a fresh SessionId per request when none persists) gets
-	 * a fresh, never-before-seen $sessionId on every single retry, so
-	 * isReloadRetryAuthorized() below is always false and this method always
-	 * re-runs. A plain TTL would then restart on every retry indefinitely;
-	 * the absolute expiry instead is pinned to the FIRST authorization for
-	 * this page (by whichever session), so the client's retry window still
-	 * closes on schedule even when no single session's own authorization
-	 * ever gets reused.
-	 */
-	private static function authorizeReloadRetries( string $id, string $sessionId ): void {
-		$expiresAt = time() + self::RELOAD_PENDING_TTL_SECONDS;
-		self::debugLog( "[SDU] authorizeReloadRetries: {$id} session={$sessionId} expiresAt={$expiresAt}" );
-		self::getSelfUpdateMarkerCache()->set(
-			smwfCacheKey( self::RELOAD_AUTHORIZED_CACHE_NAMESPACE, $id . ':' . $sessionId ),
-			$expiresAt,
-			self::RELOAD_PENDING_TTL_SECONDS + 30
-		);
-	}
-
-	private static function isReloadRetryAuthorized( string $id, string $sessionId ): bool {
-		$expiresAt = self::getSelfUpdateMarkerCache()->get(
-			smwfCacheKey( self::RELOAD_AUTHORIZED_CACHE_NAMESPACE, $id . ':' . $sessionId )
-		);
-		$result = $expiresAt !== false && $expiresAt > time();
-		self::debugLog( "[SDU] isReloadRetryAuthorized: {$id} session={$sessionId} result=" . ( $result ? 'true' : 'false' ) . " expiresAt=" . var_export( $expiresAt, true ) . " now=" . time() );
-		return $result;
-	}
-
-	/**
-	 * Test seam mirroring getSelfUpdatePendingAttemptForTesting().
-	 *
-	 * @internal for tests only
-	 */
-	public static function isReloadPendingForTesting( string $id ): bool {
-		return self::isReloadPending( $id );
 	}
 
 	/**
@@ -962,13 +680,8 @@ class Hooks {
 			// genuine, non-empty diffs pass after pass (verified live: a
 			// simple field edit on a page cascading through several
 			// dependent subobjects can trigger many real passes in a row)
-			// therefore never hit "already traversed" here, kept
-			// re-queuing itself indefinitely, and - critically - never
-			// called clearSelfUpdatePending(), so isReloadPending()'s
-			// early-exit signal (see wasSelfUpdateCycleStartedAndHasSinceEnded())
-			// never fired either: the client reload loop ran for the FULL
-			// RELOAD_PENDING_TTL_SECONDS window every time, looking to the
-			// editor like the fix made things worse, not better.
+			// therefore never hit "already traversed" here, and kept
+			// re-queuing itself indefinitely.
 			if ( $attempt > self::SELF_UPDATE_MAX_ATTEMPTS ) {
 				self::debugLog( "[SDU] <-- Already traversed (real-diff path), not re-queuing self-update" );
 				self::clearSelfUpdatePending( $id );
@@ -992,13 +705,6 @@ class Hooks {
 				self::rebuildData( true, $wikiPageValues, $subject );
 				return true;
 			}
-
-			// This is also the one point where we still know a real,
-			// non-ignored change happened on this exact save - see
-			// markReloadPending()'s docblock for why the self-UpdateJob
-			// about to be queued below would otherwise erase that fact
-			// before the editor's browser can act on it.
-			self::markReloadPending( $id );
 		} else {
 			// A genuine, non-ignored change landed on a page that is not (or
 			// no longer) self-referencing, but may still have a
@@ -1013,166 +719,6 @@ class Hooks {
 		self::rebuildData( true, $wikiPageValues, $subject );
 
 		return true;
-	}
-
-	/**
-	 * Renders a client-side reload prompt for a self-referencing page whose
-	 * real, non-ignored change would otherwise be masked by its own forced
-	 * self-UpdateJob before SMW's own PostProcHandler ever gets to show one -
-	 * see markReloadPending()'s docblock for the mechanism this compensates
-	 * for.
-	 *
-	 * Renders on EITHER of two conditions, not just the reload-pending
-	 * marker: MediaWiki's post-edit redirect can (and, verified against a
-	 * real PageForms save, routinely does) land here before
-	 * onAfterDataUpdateComplete() - which runs off SMW's own deferred store
-	 * update - has actually run for this exact save, i.e. before
-	 * markReloadPending() has had a chance to set the marker this method
-	 * reads. Gating purely on the marker would then miss exactly the
-	 * self-referencing edits this mechanism exists for, on their very first,
-	 * fastest post-save request. The post-edit cookie itself is therefore
-	 * treated as sufficient reason to start the client retry loop
-	 * proactively - if the page turns out not to be self-referencing after
-	 * all (marker never appears), the loop simply runs to its own
-	 * MAX_RETRY_MS ceiling and gives up, which costs a bounded number of
-	 * harmless `action=purge` calls, not a correctness problem.
-	 *
-	 * The FIRST render is still gated on MediaWiki's own post-edit cookie
-	 * (the same one Article::view()/PostProcHandler check) when no retry has
-	 * been authorized yet: only the editor whose own save just happened
-	 * should see an unprompted reload - anyone else loading the page in the
-	 * same short window (e.g. from a link, unrelated to this edit) gets the
-	 * normal, unreloaded page. Once that check passes, authorizeReloadRetries()
-	 * marks this page so ext.sdu.reload.js's own subsequent retries (each a
-	 * fresh request the browser makes on its own, arriving without that
-	 * single-use cookie - see authorizeReloadRetries()'s docblock) still
-	 * render the prompt even after the reload-pending marker has since
-	 * appeared (or, if the page wasn't self-referencing, never does).
-	 *
-	 * The reload-pending marker, once set, is deliberately NOT cleared here:
-	 * whether the self-UpdateJob (and any other store writes this page's
-	 * query output depends on) has actually finished by the time this exact
-	 * request runs cannot be known synchronously - forcing that
-	 * determination here would reintroduce the same kind of
-	 * synchronous-wait-for-async-work problem "Update Self" itself exists to
-	 * avoid (see retrySelfUpdateIfWithinTraversalLimit()'s docblock).
-	 * Instead, ext.sdu.reload.js (modeled directly on SMW's own
-	 * `.page-purge`/ext.smw.util.purge.js) retries with backoff on the
-	 * client: each retry re-requests this page, and once authorized, only
-	 * actually stops rendering once RELOAD_PENDING_TTL_SECONDS elapses AND
-	 * the marker never (re-)appeared, or the client's own MAX_RETRY_MS
-	 * ceiling is hit first.
-	 */
-	public static function onOutputPageParserOutput( OutputPage $outputPage, ParserOutput $parserOutput ) {
-		$title = $outputPage->getTitle();
-
-		if ( $title === null || !$title->exists() ) {
-			return true;
-		}
-
-		$id = $title->getPrefixedDBKey();
-		$request = $outputPage->getContext()->getRequest();
-		$sessionId = (string)$request->getSession()->getId();
-
-		// Early exit: once a self-update cycle that had actually started for
-		// this page has since ended, there is nothing left to wait for,
-		// regardless of whether this session was already authorized to keep
-		// retrying (isReloadRetryAuthorized() below is itself silent on
-		// this - once authorizeReloadRetries() has fired once, it keeps
-		// returning true for the rest of its own TTL independent of the
-		// cycle's actual progress, which is exactly the case this needs to
-		// override). Checked before, not merged into, the authorization
-		// logic below: this must stop rendering the prompt even for a
-		// session that IS still authorized, which no branch below expresses.
-		if ( self::wasSelfUpdateCycleStartedAndHasSinceEnded( $id ) ) {
-			self::debugLog( "[SDU] --> Self-update cycle ended, suppressing reload prompt: {$id}" );
-			return true;
-		}
-
-		$authorized = self::isReloadRetryAuthorized( $id, $sessionId );
-
-		if ( !$authorized ) {
-			if ( self::isReloadPending( $id ) ) {
-				$authorized = true;
-			} else {
-				$cookieKey = EditPage::POST_EDIT_COOKIE_KEY_PREFIX . $title->getLatestRevID();
-
-				if ( $request->getCookie( $cookieKey ) !== null ) {
-					// The editor's own post-edit request for this exact
-					// revision - start the retry loop even though the
-					// reload-pending marker hasn't appeared yet (see this
-					// method's docblock for why that's expected, not an
-					// error). A second, unrelated visitor's session hitting
-					// this same page without that cookie must not reach
-					// here.
-					$authorized = true;
-				}
-			}
-
-			if ( $authorized ) {
-				self::authorizeReloadRetries( $id, $sessionId );
-			}
-		}
-
-		if ( !$authorized ) {
-			return true;
-		}
-
-		self::debugLog( "[SDU] --> Emitting client retry prompt: {$id}" );
-
-		$outputPage->addModules( 'ext.sdu.reload' );
-
-		// Passed through so ext.sdu.reload.js can size its own retry budget
-		// off the server's actual remaining window instead of keeping an
-		// independent MAX_RETRY_MS guess: this method can render on the
-		// editor's very first post-edit request, before markReloadPending()
-		// has necessarily run for this save (see this method's own docblock)
-		// - the server's window is anchored to whenever that marker (or
-		// authorizeReloadRetries(), whichever ends up further out) actually
-		// expires, which is always later than "now" from the client's
-		// perspective, never earlier. A client-local clock started fresh on
-		// this render can therefore never outlast what the server still
-		// considers pending.
-		$outputPage->addHtml(
-			Html::rawElement(
-				'div',
-				[
-					'class' => 'sdu-reload-pending',
-					'data-title' => $title->getPrefixedDBKey(),
-					'data-expires-at' => self::getReloadRetryExpiry( $id, $sessionId ) * 1000,
-				]
-			)
-		);
-
-		return true;
-	}
-
-	/**
-	 * The later of the two absolute expiries that keep this request's retry
-	 * loop authorized (see isReloadPending()/isReloadRetryAuthorized()) -
-	 * whichever marker is still furthest out is the one actually bounding
-	 * how long the client may keep retrying, so the client's own budget must
-	 * be sized off that, not off either one alone.
-	 *
-	 * @return int Unix timestamp (seconds)
-	 */
-	private static function getReloadRetryExpiry( string $id, string $sessionId ): int {
-		$reloadExpiresAt = self::getSelfUpdateMarkerCache()->get(
-			smwfCacheKey( self::RELOAD_PENDING_CACHE_NAMESPACE, $id )
-		);
-		$authorizedExpiresAt = self::getSelfUpdateMarkerCache()->get(
-			smwfCacheKey( self::RELOAD_AUTHORIZED_CACHE_NAMESPACE, $id . ':' . $sessionId )
-		);
-
-		return max(
-			$reloadExpiresAt !== false ? $reloadExpiresAt : 0,
-			$authorizedExpiresAt !== false ? $authorizedExpiresAt : 0,
-			// Neither marker may have been written yet on this exact request
-			// (see this method's call site's docblock) - fall back to a
-			// fresh full window from now, so the client still gets a sane,
-			// non-zero budget rather than an already-expired timestamp.
-			time() + self::RELOAD_PENDING_TTL_SECONDS
-		);
 	}
 
 	/**
