@@ -270,6 +270,16 @@ class Hooks {
 	private const SELF_UPDATE_PENDING_CACHE_NAMESPACE = 'sdu:self-update-pending';
 
 	/**
+	 * Same TTL rationale as SELF_UPDATE_PENDING_TTL_SECONDS: pending remote
+	 * targets are set once (on the save that first discovers them) and must
+	 * survive until the self-update cycle they are held back for actually
+	 * ends, which can take several job-queue-runner round trips.
+	 */
+	private const PENDING_REMOTE_TARGETS_TTL_SECONDS = 300;
+
+	private const PENDING_REMOTE_TARGETS_CACHE_NAMESPACE = 'sdu:pending-remote-targets';
+
+	/**
 	 * Returns MediaWiki's own main object stash - deliberately not SMW's
 	 * ApplicationFactory::getObjectCache(), which resolves to $smwgMainCacheType
 	 * (a setting SDU has no reason to be coupled to; it's SMW-internal
@@ -424,6 +434,83 @@ class Hooks {
 		return self::getSelfUpdateAttempt( $id );
 	}
 
+	/**
+	 * Holds a self-referencing page's OTHER (non-self) "Semantic Dependency"
+	 * targets back from being pushed as UpdateJobs immediately, so they
+	 * don't race the self-update cycle - see clearSelfUpdatePending()'s own
+	 * docblock for why running them together, unordered, in the same job
+	 * queue let a remote target's UpdateJob read stale self data (verified
+	 * live, see project_self_remote_pipeline_ordering memory entry: a
+	 * random job_random queue-pop order means push order alone can't fix
+	 * this - the remote push has to happen ONLY once self is actually done,
+	 * not merely "pushed at the same time or earlier").
+	 *
+	 * Serializes each target via DIWikiPage::getSerialization() (mirroring
+	 * how markReloadPending() et al. already serialize SMW dataitems for
+	 * cache storage) rather than storing Title objects directly - Title is
+	 * not guaranteed serializable across cache backends/processes the way a
+	 * plain string is.
+	 *
+	 * @param DIWikiPage[] $remoteTargets
+	 */
+	private static function markPendingRemoteTargets( string $id, array $remoteTargets ): void {
+		if ( !$remoteTargets ) {
+			return;
+		}
+
+		$cache = self::getSelfUpdateMarkerCache();
+		$key = smwfCacheKey( self::PENDING_REMOTE_TARGETS_CACHE_NAMESPACE, $id );
+
+		$serialized = array_map(
+			static fn ( DIWikiPage $target ) => $target->getSerialization(),
+			$remoteTargets
+		);
+
+		self::debugLog(
+			"[SDU] markPendingRemoteTargets: {$id} holding back " . count( $serialized ) . " remote target(s)"
+		);
+
+		$cache->set( $key, $serialized, self::PENDING_REMOTE_TARGETS_TTL_SECONDS );
+	}
+
+	/**
+	 * Reads back and clears whatever remote targets markPendingRemoteTargets()
+	 * held back for this page, so clearSelfUpdatePending() can push them
+	 * exactly once, at the point the self-update cycle they were waiting on
+	 * actually ends - see that method's own docblock.
+	 *
+	 * @return DIWikiPage[] empty if none were held back (the common case -
+	 *  most self-referencing pages have no OTHER dependency targets at all)
+	 */
+	private static function takeAndClearPendingRemoteTargets( string $id ): array {
+		$cache = self::getSelfUpdateMarkerCache();
+		$key = smwfCacheKey( self::PENDING_REMOTE_TARGETS_CACHE_NAMESPACE, $id );
+
+		$serialized = $cache->get( $key );
+
+		if ( !$serialized || !is_array( $serialized ) ) {
+			return [];
+		}
+
+		$cache->delete( $key );
+
+		return array_values( array_filter( array_map(
+			static function ( $item ) {
+				try {
+					return DIWikiPage::doUnserialize( $item );
+				} catch ( \Exception $e ) {
+					// A malformed cache entry (e.g. from a version mismatch
+					// after a deploy) must not fatal the self-update cycle
+					// this runs at the end of - dropping just that one
+					// target is a far smaller blast radius than losing the
+					// whole cycle-end handling.
+					return null;
+				}
+			},
+			$serialized
+		) ) );
+	}
+
 	private static function clearSelfUpdatePending( string $id ): void {
 		self::getSelfUpdateMarkerCache()->delete(
 			smwfCacheKey( self::SELF_UPDATE_PENDING_CACHE_NAMESPACE, $id )
@@ -443,6 +530,25 @@ class Hooks {
 		self::getSelfUpdateMarkerCache()->delete(
 			smwfCacheKey( self::RELOAD_PENDING_CACHE_NAMESPACE, $id )
 		);
+
+		// This page's own self-update cycle just ended (by whichever of
+		// this method's several callers - resolved, attempt-limit reached,
+		// or no longer self-referencing) - ANY remote dependency targets
+		// held back by markPendingRemoteTargets() while that cycle was
+		// running can now safely be pushed. Doing this here, in the one
+		// method every cycle-end path already funnels through, rather than
+		// duplicating this call at each of those call sites individually,
+		// means no future new cycle-end path can forget it.
+		$remoteTargets = self::takeAndClearPendingRemoteTargets( $id );
+
+		if ( $remoteTargets ) {
+			self::debugLog(
+				"[SDU] clearSelfUpdatePending: {$id} self-update cycle ended, " .
+				"releasing " . count( $remoteTargets ) . " held-back remote target(s)"
+			);
+
+			self::rebuildData( true, $remoteTargets, null );
+		}
 
 		// The empty-diff streak counted toward MAX_CONSECUTIVE_EMPTY_DIFFS
 		// belonged to this now-ended cycle too - a LATER, unrelated cycle for
@@ -940,16 +1046,47 @@ class Hooks {
 			// created), not e.g. time() - see markReloadPending() for why
 			// that distinction is the whole point of this redesign.
 			self::markReloadPending( $id, $title->getLatestRevID() );
-		} else {
-			// A genuine, non-ignored change landed on a page that is not (or
-			// no longer) self-referencing, but may still have a
-			// self-update-pending marker from an earlier attempt (e.g. the
-			// dependency was just removed, or this was never really part of
-			// that cycle to begin with). Clear it so a later unrelated empty
-			// diff on this page isn't mistaken for still-pending self-update
-			// work.
-			self::clearSelfUpdatePending( $id );
+
+			// The self-update cycle just started/continued (this method
+			// hasn't cleared it above), so it is NOT yet safe to push any
+			// OTHER ("remote") dependency targets this same property value
+			// also lists - doing so immediately raced their own UpdateJobs
+			// against this page's still-in-flight self-update cycle in an
+			// unordered job queue (verified live: job_random pop order
+			// means push order alone cannot fix this), letting a remote
+			// target's forced re-parse read this page's data before its own
+			// derived value had actually settled. Hold them back instead;
+			// clearSelfUpdatePending() releases them at the exact point
+			// this page's own cycle genuinely ends, however many attempts
+			// that takes - see that method's own docblock. Self's own
+			// target is excluded here exactly like the attempt-limit branch
+			// above does, so it isn't queued twice (once via its own
+			// self-update-pending cycle, once again as a "remote" target).
+			self::markPendingRemoteTargets(
+				$id,
+				array_values( array_filter(
+					$wikiPageValues,
+					static function ( $wikiPageValue ) use ( $subject ) {
+						return !$wikiPageValue->equals( $subject );
+					}
+				) )
+			);
+
+			self::rebuildData( true, [ $subject ], $subject );
+
+			return true;
 		}
+
+		// A genuine, non-ignored change landed on a page that is not (or no
+		// longer) self-referencing, but may still have a self-update-pending
+		// marker from an earlier attempt (e.g. the dependency was just
+		// removed, or this was never really part of that cycle to begin
+		// with). Clear it so a later unrelated empty diff on this page isn't
+		// mistaken for still-pending self-update work - and so any remote
+		// targets a PREVIOUS cycle held back for this page are released now
+		// rather than staying stuck behind a cycle that will never end
+		// again (see clearSelfUpdatePending()'s own docblock).
+		self::clearSelfUpdatePending( $id );
 
 		self::rebuildData( true, $wikiPageValues, $subject );
 
