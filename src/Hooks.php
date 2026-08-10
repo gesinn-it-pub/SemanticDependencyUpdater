@@ -701,6 +701,31 @@ class Hooks {
 
 		unset( $diffTable['smw_fpt_mdat'] );
 
+		// SMW's own query-management bookkeeping (the "_ASK*" special
+		// properties documented on TypesRegistry: query string/format/size/
+		// depth/duration/source/parameters/status code for embedded
+		// {{#ask:}} queries on the page) - verified live (2026-08-10) to
+		// produce its own diff, completely independent of any user-authored
+		// content, whenever a page with an embedded query is (re-)parsed as
+		// a side effect of an UNRELATED page's forced self-UpdateJob (e.g.
+		// a remote dependency target's own UpdateJob touching a Site page's
+		// query-dependency bookkeeping while re-parsing itself). Left
+		// unfiltered, this diff never sets $triggerSemanticDependencies
+		// (none of its tables start with "smw_di", so the scan below never
+		// even inspects it - see that loop's own `strpos($key,'smw_di')`
+		// check) and so trips the "only ignored properties changed" branch
+		// without actually going through it, silently leaving a still-set
+		// reload-pending marker (see markReloadPending()) unresolved
+		// instead of extending or clearing it - the marker then simply
+		// times out client-side (see ext.sdu.reload.js's MAX_RETRY_MS)
+		// rather than the reload ever firing, even though the page's real
+		// content had already stabilized. Same category of noise as
+		// smw_fpt_mdat above, filtered the same way.
+		foreach ( [ 'smw_fpt_ask', 'smw_fpt_askst', 'smw_fpt_askfo', 'smw_fpt_asksi', 'smw_fpt_askde',
+			'smw_fpt_askdu', 'smw_fpt_asksc', 'smw_fpt_askpa', 'smw_fpt_askco' ] as $queryBookkeepingTable ) {
+			unset( $diffTable[$queryBookkeepingTable] );
+		}
+
 		self::debugLog(
 			"[SDU] Diff tables after filtering: " . implode( ", ", array_keys( $diffTable ) )
 		);
