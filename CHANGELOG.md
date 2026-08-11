@@ -6,6 +6,42 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 
 ## [Unreleased]
 
+### Added
+- Client-side reload prompt for self-referencing "Update Self" pages: a new
+  `ext.sdu.reload` module shows a spinner and polls a new read-only
+  `sduselfupdatestatus` API (`SDU\Api\ApiSduSelfUpdateStatus`, backed by
+  `SDU\Hooks::isSelfUpdateReloadPending()`) until the server's self-update
+  cycle for the exact saved revision has genuinely ended, then reloads once -
+  SMW's own `.smw-postproc` prompt never fires for this case, because SDU's
+  own forced self-`UpdateJob` overwrites SMW's `ChangeDiff` cache slot with
+  an empty diff before the browser can re-request the page
+  [`efd4bd3`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/efd4bd3),
+  [`5486801`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/5486801)
+
+### Fixed
+- Hold back remote "Semantic Dependency" `UpdateJob`s until a self-referencing
+  page's own self-update cycle has genuinely ended, instead of pushing both
+  together into the same (randomly-ordered) job queue - a remote dependency
+  could previously have its forced re-parse run before self's own cycle
+  finished, reading stale self data
+  [`0f9cde5`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/0f9cde5)
+- Filter SMW's own `_ASK*` query-management bookkeeping diffs
+  (`smw_fpt_ask*`) from the self-update diff scan, the same way
+  `smw_fpt_mdat` already was - left unfiltered, a query-bookkeeping-only diff
+  on a self-referencing page (caused by an unrelated remote `UpdateJob`
+  re-parsing it as a side effect) silently left the reload-pending marker to
+  expire on its own TTL instead of resolving cleanly
+  [`faa9819`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/faa9819)
+- End a self-update cycle early after two consecutive empty diffs
+  (`MAX_CONSECUTIVE_EMPTY_DIFFS`) instead of always exhausting the full
+  `SELF_UPDATE_MAX_ATTEMPTS` retry budget regardless of whether the derived
+  value had already stabilized
+  [`5486801`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/5486801)
+- Enforce `SELF_UPDATE_MAX_ATTEMPTS` on the real (non-empty) diff path, not
+  only the empty-diff retry path - a self-referencing page with several
+  genuine diff passes in a row could previously re-queue itself indefinitely
+  [`efd4bd3`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/efd4bd3)
+
 ## [5.0.2] - 2026-08-10
 
 ### Fixed

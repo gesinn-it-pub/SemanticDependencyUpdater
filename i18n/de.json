@@ -1,0 +1,7 @@
+{
+	"@metadata": {
+		"authors": []
+	},
+	"sdu-reload-timeout": "Diese Seite wird möglicherweise noch im Hintergrund aktualisiert. Laden Sie sie später erneut, um den aktuellen Inhalt zu sehen.",
+	"apihelp-sduselfupdatestatus-example-1": "Prüft, ob für Revision 123 der Seite „Foo“ noch ein Selbst-Aktualisierungs-Reload aussteht."
+}

@@ -133,6 +133,65 @@ class SelfReferenceIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
+	 * Verifies the public status query the client-side reload mechanism
+	 * (res/sdu/ext.sdu.reload.js, via a small dedicated API module) uses to
+	 * ask "is a reload for THIS EXACT revision still pending?" instead of
+	 * blindly waiting out a fixed backoff timer - see markReloadPending()'s
+	 * and getReloadPendingRevId()'s own docblocks for why revision identity,
+	 * not a timestamp, is the right cycle key. Live measurement showed a
+	 * fixed-backoff client can reload BEFORE the server-side self-update
+	 * cycle actually finishes when a page produces several genuine
+	 * (non-empty-diff) passes in a row, showing a stale intermediate value -
+	 * this method is the mechanism meant to close that gap.
+	 *
+	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 * @covers \SDU\Hooks::rebuildData
+	 * @covers \SDU\Hooks::isSelfUpdateReloadPending
+	 */
+	public function testIsSelfUpdateReloadPendingReflectsCycleState() {
+		$title = Title::newFromText( 'SDUReloadStatusTestPage', NS_MAIN );
+
+		$wikitext = '{{#set:SDUTestSource=SourceValue}}'
+			. '{{#set:SDUTestDerived={{#show:{{FULLPAGENAME}}|?SDUTestSource}}}}'
+			. '{{#set:Semantic Dependency={{FULLPAGENAME}}}}';
+
+		$this->editPage( $title, $wikitext );
+		$revId = $title->getLatestRevID();
+
+		$this->assertTrue(
+			Hooks::isSelfUpdateReloadPending( $title->getPrefixedDBKey(), $revId ),
+			'A reload must be reported as pending for the revision that just ' .
+			'triggered a genuine self-referencing change, before its forced ' .
+			'self-UpdateJob has had a chance to run yet.'
+		);
+
+		$this->assertFalse(
+			Hooks::isSelfUpdateReloadPending( $title->getPrefixedDBKey(), $revId + 1 ),
+			'A DIFFERENT (e.g. not-yet-existing) revision ID for the same page ' .
+			'must never be reported as pending - only the exact revision that ' .
+			'triggered the current cycle may match, per markReloadPending()\'s ' .
+			'own revision-identity contract.'
+		);
+
+		// Drain the whole queue: the forced self-UpdateJob resolves Derived,
+		// and the subsequent empty-diff retries exhaust
+		// SELF_UPDATE_MAX_ATTEMPTS, ending the cycle - mirroring
+		// testSelfReferencingDependencyEventuallyResolvesDerivedValue()'s own
+		// assertion that the marker ends up cleared (attempt 0) afterwards.
+		$this->getServiceContainer()->getJobRunner()->run( [] );
+
+		$this->assertSelfUpdatePendingAttempt( 0, $title );
+
+		$this->assertFalse(
+			Hooks::isSelfUpdateReloadPending( $title->getPrefixedDBKey(), $revId ),
+			'Once the self-update cycle has ended, the SAME revision that ' .
+			'originally triggered it must no longer be reported as pending - ' .
+			'this is the exact signal the client-side reload mechanism polls ' .
+			'for to know it is finally safe to reload.'
+		);
+	}
+
+	/**
 	 * Verifies the retry half of "Update Self": if the store still isn't
 	 * caught up when SDU's forced self-UpdateJob runs (simulated here by a
 	 * dependency page that doesn't exist yet at that point, rather than
