@@ -25,3 +25,4 @@ coverage
 # extensions.local.json.template (SESP_VERSION varies by SMW_VERSION - see
 # root Makefile). The template is the tracked source of truth.
 extensions.local.json
+tools/perf/results/
