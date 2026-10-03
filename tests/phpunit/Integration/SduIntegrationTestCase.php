@@ -73,9 +73,7 @@ abstract class SduIntegrationTestCase extends MediaWikiIntegrationTestCase {
 		// of hitting this test's own temporary tables. This mirrors what
 		// SMW's own test base class (tests/phpunit/SMWIntegrationTestCase.php)
 		// does before every test for exactly this reason.
-		\SMW\SQLStore\EntityStore\CachingSemanticDataLookup::clear();
-		\SMW\StoreFactory::clear();
-		\SMW\PropertyRegistry::clear();
+		$this->resetSmwCaches();
 
 		global $wgSDUProperty, $wgSDUTraversed, $wgSDUIgnoredProperties;
 
@@ -86,7 +84,22 @@ abstract class SduIntegrationTestCase extends MediaWikiIntegrationTestCase {
 		Hooks::setup();
 	}
 
+	private function resetSmwCaches(): void {
+		\SMW\SQLStore\EntityStore\CachingSemanticDataLookup::clear();
+		\SMW\StoreFactory::clear();
+		\SMW\PropertyRegistry::clear();
+	}
+
 	public function addDBData() {
+		// MediaWikiIntegrationTestCase calls addDBData() from run(), i.e.
+		// BEFORE setUp(), so the cache reset in setUp() has not happened yet
+		// for this test. SMW would still hold the previous test's ID and
+		// lookup caches while the database tables have already been reset,
+		// believe the property page below already has an ID, and write its
+		// type declaration without ever creating the matching object-ID row -
+		// leaving the declaration invisible to every later lookup.
+		$this->resetSmwCaches();
+
 		parent::addDBData();
 
 		$this->editPage(
