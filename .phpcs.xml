@@ -38,6 +38,9 @@
 		<severity>0</severity>
 	</rule>
 
+	<!-- Benchmark tooling (see docs/performance.md), not extension runtime code. -->
+	<exclude-pattern>tools/</exclude-pattern>
+
 	<file>.</file>
 	<arg name="extensions" value="php"/>
 	<arg name="encoding" value="UTF-8"/>
