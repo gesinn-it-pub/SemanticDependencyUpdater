@@ -6,6 +6,10 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 
 ## [Unreleased]
 
+### Changed
+- Test against Semantic MediaWiki 7.3.1 instead of 7.2.0
+  [`bb57e87`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/bb57e87)
+
 ### Documentation
 - Document SDU's measured performance characteristics and how to benchmark a
   change before and after, including a benchmark harness in `tools/perf`
