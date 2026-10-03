@@ -349,6 +349,10 @@
 			// gives the earliest possible status check a freshly-rendered
 			// page to reflect once it does reload, rather than only
 			// purging right before the final reload at the end of poll().
+			// Measured cost: one API request. It causes no extra render (a
+			// render only happens on the next view, which follows the final
+			// purge), so removing it would save next to nothing - see
+			// docs/performance.md.
 			new mw.Api().post( { action: 'purge', titles: title } ).then( function () {
 				reload.poll( title, revisionId, startTime, state.attempts, dialog );
 			}, function () {

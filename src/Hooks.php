@@ -382,6 +382,10 @@ class Hooks {
 	 * verified live against a real multi-answer PageForms save that
 	 * previously reloaded 5 times before this constant existed, with the
 	 * last 3 of those attempts each finding nothing.
+	 *
+	 * These confirmation passes are the main source of self-update latency
+	 * (see docs/performance.md). Do not lower this without re-running the
+	 * integration tests and the before/after measurement described there.
 	 */
 	private const MAX_CONSECUTIVE_EMPTY_DIFFS = 2;
 
@@ -1218,6 +1222,11 @@ class Hooks {
 	 * already cover. Once clearSelfUpdatePending() has cleared the marker
 	 * (the cycle resolved or hit its attempt limit), rendering stops - there
 	 * is no separate "cycle ended" state to check here.
+	 *
+	 * Cost: one stash read per page view. Measured at about 0.3 % of a view
+	 * (see docs/performance.md), so it is deliberately not gated further:
+	 * any cheaper pre-check (e.g. on the post-edit cookie) would first have
+	 * to be proven never to skip a genuine cycle.
 	 */
 	public static function onOutputPageParserOutput( OutputPage $outputPage, ParserOutput $parserOutput ) {
 		$title = $outputPage->getTitle();

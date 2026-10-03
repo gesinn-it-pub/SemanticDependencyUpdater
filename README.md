@@ -6,3 +6,5 @@ Semantic Dependency Updater (SDU) is a MediaWiki extension that monitors pages f
 If a Semantic Dependency property is found, SDU will update all pages that have been selected through that property.
 
 See https://www.mediawiki.org/wiki/Extension:SemanticDependencyUpdater for more details.
+
+For measured performance characteristics and how to benchmark a change, see [docs/performance.md](docs/performance.md).
