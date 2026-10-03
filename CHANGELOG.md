@@ -19,6 +19,11 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
   [`5486801`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/5486801)
 
 ### Fixed
+- Stop an endless purge/poll/reload loop after saving a page that another
+  extension (e.g. ApprovedRevs) displays at an older revision: the reload
+  prompt is now rendered only while the server-side reload marker is pending
+  (matching the status API), and the client reloads at most once per revision
+  [`3a16510`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/3a16510)
 - Hold back remote "Semantic Dependency" `UpdateJob`s until a self-referencing
   page's own self-update cycle has genuinely ended, instead of pushing both
   together into the same (randomly-ordered) job queue - a remote dependency
