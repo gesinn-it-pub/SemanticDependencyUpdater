@@ -7,8 +7,8 @@ use MediaWiki\Output\OutputPage;
 use MediaWiki\Parser\ParserOutput;
 use MediaWiki\Request\FauxRequest;
 use MediaWiki\Title\Title;
-use Wikimedia\Rdbms\IDBAccessObject;
 use SDU\Hooks;
+use Wikimedia\Rdbms\IDBAccessObject;
 
 /**
  * Covers SDU\Hooks::onOutputPageParserOutput(), which renders the
