@@ -178,6 +178,13 @@ abstract class SduIntegrationTestCase extends MediaWikiIntegrationTestCase {
 	 */
 	protected function runJobsUntilOneUpdateJobRan(): void {
 		for ( $i = 0; $i < 10; $i++ ) {
+			// In production every job runs in its own process, so it never
+			// sees SemanticData that another job (or this test's own reads)
+			// left in SMW's process-wide lookup cache. Reproduce that here,
+			// otherwise a read between two jobs makes the second job work on
+			// stale data.
+			\SMW\SQLStore\EntityStore\CachingSemanticDataLookup::clear();
+
 			$status = $this->getServiceContainer()->getJobRunner()->run( [ 'maxJobs' => 1 ] );
 
 			if ( $status['jobs'] === [] ) {
