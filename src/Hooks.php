@@ -3,7 +3,6 @@
 namespace SDU;
 
 use MediaWiki\Deferred\DeferredUpdates;
-use MediaWiki\EditPage\EditPage;
 use MediaWiki\Html\Html;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Output\OutputPage;
@@ -1202,35 +1201,23 @@ class Hooks {
 	 * see markReloadPending()'s docblock for the mechanism this compensates
 	 * for.
 	 *
-	 * Gated on MediaWiki's own post-edit cookie alone (Article::view()'s
-	 * `wpPostEdit{revId}`, the same one PostProcHandler checks) - not on any
-	 * SDU-managed session marker. That cookie is already exactly what this
-	 * needs: single-use per revision (deleted after the first read, so a
-	 * second unrelated visitor loading this page from a link never sees it),
-	 * and stable across however many times ext.sdu.reload.js's own retries
-	 * re-request the SAME revision's rendering - MediaWiki does not delete
-	 * the cookie until the FULL response for that read has been sent, and
-	 * every retry here is the browser's own `action=purge` + reload of that
-	 * SAME already-rendered response's follow-up, not a fresh Article::view()
-	 * read of a NEW revision. An earlier version of this mechanism kept a
-	 * separate, session-scoped "authorization" marker to survive across
-	 * retries instead - that marker re-derived its own expiry from "now" on
-	 * every request from a client with no stable session between requests,
-	 * which the client misread as "a new save cycle started" and silently
-	 * broke the backoff dialog for. Reading the cookie directly on every
-	 * render, rather than caching an "authorized" bit derived from it once,
-	 * has no equivalent failure mode: the cookie's own presence/absence IS
-	 * the fact this needs, not a derived approximation of it.
-	 *
-	 * Renders on EITHER of two conditions: the cookie (this render is the
-	 * editor's own, for this exact revision), OR the reload-pending marker
-	 * already being set for this exact revision (a retry's own
-	 * `action=purge` reload of that same response, e.g. after the cookie's
-	 * single-use window has technically closed but the cycle is still
-	 * genuinely running) - see getReloadPendingRevId(). Once
-	 * clearSelfUpdatePending() has cleared that marker (the cycle resolved or
-	 * hit its attempt limit), this second condition alone already stops
-	 * matching - there is no separate "cycle ended" state to check here.
+	 * Gated on the reload-pending marker for this exact revision alone (see
+	 * getReloadPendingRevId()) - the same fact the sduselfupdatestatus API
+	 * answers from (isSelfUpdateReloadPending()), so server render and status
+	 * API cannot disagree. MediaWiki's post-edit cookie
+	 * (`PostEditRevision{revId}`) deliberately does NOT authorize rendering
+	 * on its own: core only deletes it in Article::view() for the revision it
+	 * actually renders, so when another extension displays an older revision
+	 * of the page (e.g. ApprovedRevs showing the approved one) the cookie for
+	 * the latest revision stays valid for EditPage::POST_EDIT_COOKIE_DURATION
+	 * (20 minutes). With no cycle running the client would then purge, poll,
+	 * get "pending: false", reload, and be served the prompt again on every
+	 * reload until the cookie expired. A genuine cycle always has the marker
+	 * set at save time (see markReloadPending()), before the editor's browser
+	 * requests the page, so the cookie adds nothing the marker does not
+	 * already cover. Once clearSelfUpdatePending() has cleared the marker
+	 * (the cycle resolved or hit its attempt limit), rendering stops - there
+	 * is no separate "cycle ended" state to check here.
 	 */
 	public static function onOutputPageParserOutput( OutputPage $outputPage, ParserOutput $parserOutput ) {
 		$title = $outputPage->getTitle();
@@ -1242,13 +1229,7 @@ class Hooks {
 		$id = $title->getPrefixedDBKey();
 		$revId = $title->getLatestRevID();
 
-		$cookieKey = EditPage::POST_EDIT_COOKIE_KEY_PREFIX . $revId;
-		$request = $outputPage->getContext()->getRequest();
-
-		$authorized = $request->getCookie( $cookieKey ) !== null
-			|| self::getReloadPendingRevId( $id ) === $revId;
-
-		if ( !$authorized ) {
+		if ( !self::isSelfUpdateReloadPending( $id, $revId ) ) {
 			return true;
 		}
 

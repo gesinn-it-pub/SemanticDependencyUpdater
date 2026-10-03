@@ -7,6 +7,7 @@ use MediaWiki\Output\OutputPage;
 use MediaWiki\Parser\ParserOutput;
 use MediaWiki\Request\FauxRequest;
 use MediaWiki\Title\Title;
+use Wikimedia\Rdbms\IDBAccessObject;
 use SDU\Hooks;
 
 /**
@@ -15,8 +16,8 @@ use SDU\Hooks;
  * self-referencing page whose real, non-ignored change would otherwise be
  * masked by its own forced self-UpdateJob before SMW's own PostProcHandler
  * ever gets a chance to show a reload prompt - see that method's own
- * docblock for the two conditions ("authorized" via either MediaWiki's own
- * post-edit cookie or the reload-pending marker) that gate rendering.
+ * docblock for the condition (the reload-pending marker matching the current
+ * revision) that gates rendering.
  *
  * @group SemanticDependencyUpdater
  * @group Database
@@ -55,8 +56,7 @@ class OutputPageParserOutputIntegrationTest extends SduIntegrationTestCase {
 		// A genuine self-referencing edit sets the reload-pending marker for
 		// this exact revision (see onAfterDataUpdateComplete()'s
 		// markReloadPending() call) - no post-edit cookie is involved here,
-		// isolating the marker-based half of onOutputPageParserOutput()'s
-		// "authorized" check from the cookie-based half.
+		// so rendering here depends on the marker alone.
 		$this->editPage( $title, $wikitext );
 
 		$outputPage = $this->renderFor( $title );
@@ -77,13 +77,16 @@ class OutputPageParserOutputIntegrationTest extends SduIntegrationTestCase {
 	/**
 	 * @covers \SDU\Hooks::onOutputPageParserOutput
 	 */
-	public function testRendersThePromptWhenThePostEditCookieIsPresent() {
+	public function testDoesNotRenderForThePostEditCookieAloneWithoutAPendingCycle() {
 		$title = Title::newFromText( 'SDUOutputPageCookieTestPage', NS_MAIN );
 
-		// No SDU property at all, and thus no reload-pending marker - the
-		// post-edit cookie alone must be sufficient to authorize rendering,
-		// per onOutputPageParserOutput()'s own docblock on why it deliberately
-		// checks EITHER condition, not just the marker.
+		// No SDU property at all, and thus no reload-pending marker: the
+		// sduselfupdatestatus API would answer "pending: false" for this
+		// revision, so the prompt must not render either - otherwise the
+		// client purges, polls, gets "false", reloads, and is served the
+		// prompt again for as long as the cookie lives (up to 20 minutes
+		// when the cookie is never consumed, e.g. ApprovedRevs showing an
+		// older revision).
 		$this->editPage( $title, 'Just some ordinary wikitext.' );
 		$revId = $title->getLatestRevID();
 
@@ -91,19 +94,58 @@ class OutputPageParserOutputIntegrationTest extends SduIntegrationTestCase {
 			'PostEditRevision' . $revId => '1',
 		] );
 
-		$this->assertStringContainsString(
-			'sdu-reload-pending',
-			$outputPage->getHTML(),
-			'MediaWiki\'s own post-edit cookie for the current revision must ' .
-			'alone be sufficient to render the prompt, independent of whether ' .
-			'a reload-pending marker exists.'
+		$this->assertStringNotContainsString( 'sdu-reload-pending', $outputPage->getHTML() );
+		$this->assertNotContains( 'ext.sdu.reload', $outputPage->getModules() );
+		$this->assertFalse( Hooks::isSelfUpdateReloadPending( $title->getPrefixedDBKey(), $revId ) );
+	}
+
+	/**
+	 * ApprovedRevs scenario: the page is displayed at an older (approved)
+	 * revision while the post-edit cookie belongs to the newer, latest one
+	 * and core never consumes it.
+	 *
+	 * @covers \SDU\Hooks::onOutputPageParserOutput
+	 */
+	public function testDoesNotRenderWhenCookieIsSetForNewerRevisionThanDisplayed() {
+		$title = Title::newFromText( 'SDUOutputPageOlderRevisionTestPage', NS_MAIN );
+
+		$this->editPage( $title, 'First revision.' );
+		$this->editPage( $title, 'Second revision.' );
+		$latestRevId = $title->getLatestRevID( IDBAccessObject::READ_LATEST );
+
+		$outputPage = $this->renderFor( $title, [
+			'PostEditRevision' . $latestRevId => '1',
+		] );
+
+		$this->assertStringNotContainsString( 'sdu-reload-pending', $outputPage->getHTML() );
+	}
+
+	/**
+	 * Marker emitted must imply the status API reports pending for the same
+	 * revision, so server render and API cannot disagree.
+	 *
+	 * @covers \SDU\Hooks::onOutputPageParserOutput
+	 */
+	public function testEmittedMarkerImpliesStatusApiReportsPending() {
+		$title = Title::newFromText( 'SDUOutputPageConsistencyTestPage', NS_MAIN );
+
+		$this->editPage( $title,
+			'{{#set:SDUTestSource=SourceValue}}'
+			. '{{#set:SDUTestDerived={{#show:{{FULLPAGENAME}}|?SDUTestSource}}}}'
+			. '{{#set:Semantic Dependency={{FULLPAGENAME}}}}'
 		);
+		$revId = $title->getLatestRevID();
+
+		$outputPage = $this->renderFor( $title, [ 'PostEditRevision' . $revId => '1' ] );
+
+		$this->assertStringContainsString( 'sdu-reload-pending', $outputPage->getHTML() );
+		$this->assertTrue( Hooks::isSelfUpdateReloadPending( $title->getPrefixedDBKey(), $revId ) );
 	}
 
 	/**
 	 * @covers \SDU\Hooks::onOutputPageParserOutput
 	 */
-	public function testDoesNotRenderWithoutEitherAuthorizationSignal() {
+	public function testDoesNotRenderWithoutAPendingMarker() {
 		$title = Title::newFromText( 'SDUOutputPageUnauthorizedTestPage', NS_MAIN );
 
 		$this->editPage( $title, 'Just some ordinary wikitext, no self-update cycle at all.' );
@@ -113,7 +155,7 @@ class OutputPageParserOutputIntegrationTest extends SduIntegrationTestCase {
 		$this->assertStringNotContainsString(
 			'sdu-reload-pending',
 			$outputPage->getHTML(),
-			'Without a matching post-edit cookie or reload-pending marker, ' .
+			'Without a matching reload-pending marker, ' .
 			'the prompt must not render - e.g. an unrelated visitor loading ' .
 			'this page from a link.'
 		);

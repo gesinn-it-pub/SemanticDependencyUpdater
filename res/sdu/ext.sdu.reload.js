@@ -119,7 +119,27 @@
 			mw.storage.session.remove( reload.storageKey( title ) );
 		},
 
-		doReload: function () {
+		reloadedKey: function ( title ) {
+			return 'mw-sdu-reloaded-' + title;
+		},
+
+		/**
+		 * Defence in depth against a reload loop: remembers (per title, in
+		 * session storage) the revision this script already reloaded for.
+		 * If the server renders `.sdu-reload-pending` again for that same
+		 * revision after the reload - i.e. server render and status API
+		 * disagree - init() does not re-arm, so a stray marker can cause at
+		 * most one reload per revision instead of one per poll cycle. The
+		 * entry is dropped by init() as soon as a render arrives without the
+		 * marker, so a later cycle for the same revision (e.g. a null edit)
+		 * is not suppressed.
+		 */
+		hasReloaded: function ( title, revisionId ) {
+			return mw.storage.session.get( reload.reloadedKey( title ) ) === revisionId;
+		},
+
+		doReload: function ( title, revisionId ) {
+			mw.storage.session.set( reload.reloadedKey( title ), revisionId );
 			location.reload();
 		},
 
@@ -269,7 +289,9 @@
 				reload.clearRetryState( title );
 
 				new mw.Api().post( { action: 'purge', titles: title } ).then(
-					reload.doReload,
+					function () {
+						reload.doReload( title, revisionId );
+					},
 					// A failed final purge is treated the same as a failed
 					// status check below - see that branch's own comment.
 					function () {
@@ -349,11 +371,20 @@
 				// so a later, unrelated cycle for the same title starts with
 				// a fresh retry window.
 				reload.clearRetryState( mw.config.get( 'wgPageName' ) );
+				mw.storage.session.remove( reload.reloadedKey( mw.config.get( 'wgPageName' ) ) );
 				return;
 			}
 
 			$pending.each( function () {
-				reload.run( $( this ) );
+				var $el = $( this );
+				var title = $el.data( 'title' ) || mw.config.get( 'wgPageName' );
+				var revisionId = String( $el.data( 'revision-id' ) || mw.config.get( 'wgCurRevisionId' ) );
+
+				if ( reload.hasReloaded( title, revisionId ) ) {
+					return;
+				}
+
+				reload.run( $el );
 			} );
 		}
 	};
