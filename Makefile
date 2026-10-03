@@ -17,7 +17,7 @@ DB_TYPE?=mysql
 DB_IMAGE?="mariadb:11.2"
 
 # extensions
-SMW_VERSION?=7.2.0
+SMW_VERSION?=7.3.1
 
 # SemanticExtraSpecialProperties version used for the ___REVID-based
 # $wgSDUIgnoredProperties default (see extensions.local.json.template).
