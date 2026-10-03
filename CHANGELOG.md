@@ -6,6 +6,11 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 
 ## [Unreleased]
 
+### Documentation
+- Document SDU's measured performance characteristics and how to benchmark a
+  change before and after, including a benchmark harness in `tools/perf`
+  [`b0e9450`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/b0e9450)
+
 ## [5.1.0] - 2026-10-03
 
 Adds a reload prompt for self-referencing "Update Self" pages and fixes several
