@@ -6,46 +6,29 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-10-03
+
+Adds a reload prompt for self-referencing "Update Self" pages and fixes several
+self-update cycle issues, including an endless reload loop with ApprovedRevs.
+
 ### Added
-- Client-side reload prompt for self-referencing "Update Self" pages: a new
-  `ext.sdu.reload` module shows a spinner and polls a new read-only
-  `sduselfupdatestatus` API (`SDU\Api\ApiSduSelfUpdateStatus`, backed by
-  `SDU\Hooks::isSelfUpdateReloadPending()`) until the server's self-update
-  cycle for the exact saved revision has genuinely ended, then reloads once -
-  SMW's own `.smw-postproc` prompt never fires for this case, because SDU's
-  own forced self-`UpdateJob` overwrites SMW's `ChangeDiff` cache slot with
-  an empty diff before the browser can re-request the page
-  [`efd4bd3`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/efd4bd3),
-  [`5486801`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/5486801)
+- Pages that reference themselves now show a spinner after saving and reload
+  once, as soon as their self-update has actually finished, so the editor sees
+  the final values [`efd4bd3`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/efd4bd3), [`5486801`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/5486801)
 
 ### Fixed
-- Stop an endless purge/poll/reload loop after saving a page that another
-  extension (e.g. ApprovedRevs) displays at an older revision: the reload
-  prompt is now rendered only while the server-side reload marker is pending
-  (matching the status API), and the client reloads at most once per revision
-  [`3a16510`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/3a16510)
-- Hold back remote "Semantic Dependency" `UpdateJob`s until a self-referencing
-  page's own self-update cycle has genuinely ended, instead of pushing both
-  together into the same (randomly-ordered) job queue - a remote dependency
-  could previously have its forced re-parse run before self's own cycle
-  finished, reading stale self data
-  [`0f9cde5`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/0f9cde5)
-- Filter SMW's own `_ASK*` query-management bookkeeping diffs
-  (`smw_fpt_ask*`) from the self-update diff scan, the same way
-  `smw_fpt_mdat` already was - left unfiltered, a query-bookkeeping-only diff
-  on a self-referencing page (caused by an unrelated remote `UpdateJob`
-  re-parsing it as a side effect) silently left the reload-pending marker to
-  expire on its own TTL instead of resolving cleanly
-  [`faa9819`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/faa9819)
-- End a self-update cycle early after two consecutive empty diffs
-  (`MAX_CONSECUTIVE_EMPTY_DIFFS`) instead of always exhausting the full
-  `SELF_UPDATE_MAX_ATTEMPTS` retry budget regardless of whether the derived
-  value had already stabilized
-  [`5486801`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/5486801)
-- Enforce `SELF_UPDATE_MAX_ATTEMPTS` on the real (non-empty) diff path, not
-  only the empty-diff retry path - a self-referencing page with several
-  genuine diff passes in a row could previously re-queue itself indefinitely
-  [`efd4bd3`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/efd4bd3)
+- Fix an endless reload loop after saving a page that ApprovedRevs shows at an
+  older revision; the page now reloads at most once per revision
+  [`3a16510`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/3a16510) ([#26](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/issues/26))
+- Update other pages listed in "Semantic Dependency" only after a
+  self-referencing page's own update has finished, so they no longer read
+  stale data [`0f9cde5`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/0f9cde5)
+- Fix the reload prompt timing out instead of reloading on self-referencing
+  pages that contain queries [`faa9819`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/faa9819)
+- Stop a self-update early once the derived value has stabilised instead of
+  always using all retries [`5486801`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/5486801)
+- Limit the number of self-update retries when the page keeps changing, which
+  could previously re-queue indefinitely [`efd4bd3`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/efd4bd3)
 
 ## [5.0.2] - 2026-08-10
 
@@ -96,7 +79,8 @@ deletion-triggered dependency rebuilds, which were never actually wired up.
 - Replace PHPStan/Psalm with Phan for static analysis
   [`c4868d1`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/c4868d1)
 
-[Unreleased]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.0.2...HEAD
+[Unreleased]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.0...HEAD
+[5.1.0]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.0.2...5.1.0
 [5.0.2]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.0.1...5.0.2
 [5.0.1]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.0.0...5.0.1
 [5.0.0]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/releases/tag/5.0.0
