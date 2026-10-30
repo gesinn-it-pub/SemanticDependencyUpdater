@@ -39,6 +39,9 @@ COMPOSER_EXT?=true
 # Enables node.js related tests and "npm install"
 # NODE_JS?=true
 
+# coverage: PCOV is several times faster than Xdebug (line coverage only)
+COVERAGE_DRIVER?=pcov
+
 # check for build dir and git submodule init if it does not exist
 include build/Makefile
 
