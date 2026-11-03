@@ -48,21 +48,6 @@ class RemoteTargetHoldBackIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @return string[] prefixed DB keys of the pages with a queued smw.update job
-	 */
-	private function getQueuedUpdateJobTitles(): array {
-		$titles = [];
-
-		$queue = $this->getServiceContainer()->getJobQueueGroup()->get( 'smw.update' );
-
-		foreach ( $queue->getAllQueuedJobs() as $job ) {
-			$titles[] = $job->getTitle()->getPrefixedDBKey();
-		}
-
-		return $titles;
-	}
-
-	/**
 	 * @covers \SDU\Hooks
 	 */
 	public function testRemoteTargetIsHeldBackUntilSelfUpdateCycleEnds() {

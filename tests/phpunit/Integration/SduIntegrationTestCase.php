@@ -213,6 +213,21 @@ abstract class SduIntegrationTestCase extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
+	 * @return string[] prefixed DB keys of the pages with a queued smw.update job
+	 */
+	protected function getQueuedUpdateJobTitles(): array {
+		$titles = [];
+
+		$queue = $this->getServiceContainer()->getJobQueueGroup()->get( 'smw.update' );
+
+		foreach ( $queue->getAllQueuedJobs() as $job ) {
+			$titles[] = $job->getTitle()->getPrefixedDBKey();
+		}
+
+		return $titles;
+	}
+
+	/**
 	 * Drains the whole job queue one job at a time, resetting SMW's
 	 * process-wide lookup cache before each job - unlike run( [] ), which
 	 * runs every job in this one process and lets a job see SemanticData that
