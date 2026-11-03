@@ -41,9 +41,7 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
-	 * @covers \SDU\Hooks::updatePagesMatchingQuery
-	 * @covers \SDU\Hooks::rebuildData
+	 * @covers \SDU\Hooks
 	 */
 	public function testNoPropertyDoesNotTriggerUpdate() {
 		/** @phpstan-ignore class.notFound */
@@ -61,9 +59,7 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
-	 * @covers \SDU\Hooks::updatePagesMatchingQuery
-	 * @covers \SDU\Hooks::rebuildData
+	 * @covers \SDU\Hooks
 	 */
 	public function testNoDataChangeDoesNotTriggerUpdate() {
 		global $wgSDUProperty;
@@ -83,9 +79,7 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
-	 * @covers \SDU\Hooks::updatePagesMatchingQuery
-	 * @covers \SDU\Hooks::rebuildData
+	 * @covers \SDU\Hooks
 	 */
 	public function testSemanticChangeTriggersUpdate() {
 		global $wgSDUProperty;
@@ -115,9 +109,7 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
-	 * @covers \SDU\Hooks::updatePagesMatchingQuery
-	 * @covers \SDU\Hooks::rebuildData
+	 * @covers \SDU\Hooks
 	 */
 	public function testTriggerSemanticDependenciesSetToFalse() {
 		global $wgSDUTraversed;
@@ -150,9 +142,7 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
-	 * @covers \SDU\Hooks::updatePagesMatchingQuery
-	 * @covers \SDU\Hooks::rebuildData
+	 * @covers \SDU\Hooks
 	 */
 	public function testUpdaterAlreadyTraversed() {
 		global $wgSDUTraversed;

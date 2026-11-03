@@ -69,7 +69,7 @@ class ModificationDateFilterIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 * @covers \SDU\Hooks
 	 */
 	public function testPureNullEditDoesNotTriggerDependencyUpdate() {
 		$title = Title::newFromText( 'SDUMdatNullEditPage', NS_MAIN );
@@ -97,7 +97,7 @@ class ModificationDateFilterIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 * @covers \SDU\Hooks
 	 */
 	public function testGenuineSemanticChangeStillTriggersDependencyUpdate() {
 		$title = Title::newFromText( 'SDUMdatRealChangePage', NS_MAIN );

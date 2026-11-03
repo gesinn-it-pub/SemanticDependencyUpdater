@@ -107,7 +107,7 @@ class RevisionIdPropertyIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 * @covers \SDU\Hooks
 	 */
 	public function testNullRevisionWithOnlyRevisionIdChangeDoesNotTriggerDependencyUpdate() {
 		$title = Title::newFromText( 'SDURevIdNullEditPage', NS_MAIN );
@@ -168,7 +168,7 @@ class RevisionIdPropertyIntegrationTest extends SduIntegrationTestCase {
 	 * ignored ones - losing the pending retry context for the real "Update
 	 * Self" cycle.
 	 *
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 * @covers \SDU\Hooks
 	 */
 	public function testNullRevisionWithOnlyIgnoredPropertyChangeDoesNotClearPendingSelfUpdate() {
 		$title = Title::newFromText( 'SDURevIdSelfUpdatePendingPage', NS_MAIN );

@@ -40,7 +40,7 @@ class PageDeleteIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onPageDelete
+	 * @covers \SDU\Hooks
 	 */
 	public function testDeletingPageWithDependencyTriggersTargetUpdate() {
 		$targetTitle = Title::newFromText( 'SDUDeleteTargetPage', NS_MAIN );
@@ -73,7 +73,7 @@ class PageDeleteIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onPageDelete
+	 * @covers \SDU\Hooks
 	 */
 	public function testDeletingUnrelatedPageDoesNotTriggerUpdate() {
 		$title = Title::newFromText( 'SDUDeleteUnrelatedPage', NS_MAIN );

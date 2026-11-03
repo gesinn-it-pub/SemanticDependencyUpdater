@@ -44,7 +44,7 @@ class IgnoredPropertyNotInstalledIntegrationTest extends SduIntegrationTestCase 
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 * @covers \SDU\Hooks
 	 */
 	public function testEditDoesNotCrashAndStillTriggersDependencyUpdate() {
 		$this->editPage(

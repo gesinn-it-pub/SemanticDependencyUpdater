@@ -71,8 +71,7 @@ class SelfReferenceIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
-	 * @covers \SDU\Hooks::rebuildData
+	 * @covers \SDU\Hooks
 	 */
 	public function testSelfReferencingDependencyEventuallyResolvesDerivedValue() {
 		$title = Title::newFromText( 'SDUSelfReferenceTestPage', NS_MAIN );
@@ -144,9 +143,7 @@ class SelfReferenceIntegrationTest extends SduIntegrationTestCase {
 	 * (non-empty-diff) passes in a row, showing a stale intermediate value -
 	 * this method is the mechanism meant to close that gap.
 	 *
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
-	 * @covers \SDU\Hooks::rebuildData
-	 * @covers \SDU\Hooks::isSelfUpdateReloadPending
+	 * @covers \SDU\Hooks
 	 */
 	public function testIsSelfUpdateReloadPendingReflectsCycleState() {
 		$title = Title::newFromText( 'SDUReloadStatusTestPage', NS_MAIN );
@@ -210,8 +207,7 @@ class SelfReferenceIntegrationTest extends SduIntegrationTestCase {
 	 * call would burn through all attempts before this test gets a chance to
 	 * create the dependency page in between.
 	 *
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
-	 * @covers \SDU\Hooks::rebuildData
+	 * @covers \SDU\Hooks
 	 */
 	public function testSelfUpdateRetriesUntilStoreCatchesUp() {
 		$title = Title::newFromText( 'SDUSelfUpdateRetryTestPage', NS_MAIN );
@@ -297,7 +293,7 @@ class SelfReferenceIntegrationTest extends SduIntegrationTestCase {
 	 * warning into a hard test failure by design (so a silent regression
 	 * here can't hide as a passing test either).
 	 *
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 * @covers \SDU\Hooks
 	 */
 	public function testSelfUpdateDoesNotRetryWithoutADurableCache() {
 		$this->overrideConfigValue( 'MainStash', CACHE_NONE );
@@ -410,8 +406,7 @@ class SelfReferenceIntegrationTest extends SduIntegrationTestCase {
 	 * still suspected. Not reproducible when this method runs alone. Skipped
 	 * rather than left flaky - see the class docblock's "Known limitation".
 	 *
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
-	 * @covers \SDU\Hooks::rebuildData
+	 * @covers \SDU\Hooks
 	 */
 	public function testSelfReferencingPageAccumulatesAttemptsAcrossConsecutiveGenuineChanges() {
 		$title = Title::newFromText( 'SDUSelfReferenceNeverStabilizesTestPage', NS_MAIN );
@@ -483,7 +478,7 @@ class SelfReferenceIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onAfterDataUpdateComplete
+	 * @covers \SDU\Hooks
 	 */
 	public function testSelfReferenceDoesNotRecurseIndefinitely() {
 		global $wgSDUTraversed;

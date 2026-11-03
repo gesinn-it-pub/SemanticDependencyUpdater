@@ -40,8 +40,7 @@ class ApiSduSelfUpdateStatusIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Api\ApiSduSelfUpdateStatus::execute
-	 * @covers \SDU\Api\ApiSduSelfUpdateStatus::getAllowedParams
+	 * @covers \SDU\Api\ApiSduSelfUpdateStatus
 	 */
 	public function testReportsPendingTrueForARevisionWithAGenuineSelfReferencingChange() {
 		$title = Title::newFromText( 'SDUApiStatusPendingTestPage', NS_MAIN );
@@ -69,7 +68,7 @@ class ApiSduSelfUpdateStatusIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Api\ApiSduSelfUpdateStatus::execute
+	 * @covers \SDU\Api\ApiSduSelfUpdateStatus
 	 */
 	public function testReportsPendingFalseOnceTheSelfUpdateCycleHasEnded() {
 		$title = Title::newFromText( 'SDUApiStatusResolvedTestPage', NS_MAIN );
@@ -101,7 +100,7 @@ class ApiSduSelfUpdateStatusIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Api\ApiSduSelfUpdateStatus::execute
+	 * @covers \SDU\Api\ApiSduSelfUpdateStatus
 	 */
 	public function testReportsPendingFalseForATitleThatWasNeverSelfReferencing() {
 		$title = Title::newFromText( 'SDUApiStatusUnrelatedTestPage', NS_MAIN );
@@ -122,7 +121,7 @@ class ApiSduSelfUpdateStatusIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Api\ApiSduSelfUpdateStatus::execute
+	 * @covers \SDU\Api\ApiSduSelfUpdateStatus
 	 */
 	public function testDiesWithAnErrorForAnInvalidTitle() {
 		$this->expectException( \MediaWiki\Api\ApiUsageException::class );

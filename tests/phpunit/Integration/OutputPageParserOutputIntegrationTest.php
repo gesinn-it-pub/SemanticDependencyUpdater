@@ -44,7 +44,7 @@ class OutputPageParserOutputIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onOutputPageParserOutput
+	 * @covers \SDU\Hooks
 	 */
 	public function testRendersThePromptWhenTheReloadPendingMarkerMatchesTheCurrentRevision() {
 		$title = Title::newFromText( 'SDUOutputPageMarkerTestPage', NS_MAIN );
@@ -75,7 +75,7 @@ class OutputPageParserOutputIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onOutputPageParserOutput
+	 * @covers \SDU\Hooks
 	 */
 	public function testDoesNotRenderForThePostEditCookieAloneWithoutAPendingCycle() {
 		$title = Title::newFromText( 'SDUOutputPageCookieTestPage', NS_MAIN );
@@ -104,7 +104,7 @@ class OutputPageParserOutputIntegrationTest extends SduIntegrationTestCase {
 	 * revision while the post-edit cookie belongs to the newer, latest one
 	 * and core never consumes it.
 	 *
-	 * @covers \SDU\Hooks::onOutputPageParserOutput
+	 * @covers \SDU\Hooks
 	 */
 	public function testDoesNotRenderWhenCookieIsSetForNewerRevisionThanDisplayed() {
 		$title = Title::newFromText( 'SDUOutputPageOlderRevisionTestPage', NS_MAIN );
@@ -124,7 +124,7 @@ class OutputPageParserOutputIntegrationTest extends SduIntegrationTestCase {
 	 * Marker emitted must imply the status API reports pending for the same
 	 * revision, so server render and API cannot disagree.
 	 *
-	 * @covers \SDU\Hooks::onOutputPageParserOutput
+	 * @covers \SDU\Hooks
 	 */
 	public function testEmittedMarkerImpliesStatusApiReportsPending() {
 		$title = Title::newFromText( 'SDUOutputPageConsistencyTestPage', NS_MAIN );
@@ -143,7 +143,7 @@ class OutputPageParserOutputIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onOutputPageParserOutput
+	 * @covers \SDU\Hooks
 	 */
 	public function testDoesNotRenderWithoutAPendingMarker() {
 		$title = Title::newFromText( 'SDUOutputPageUnauthorizedTestPage', NS_MAIN );
@@ -167,7 +167,7 @@ class OutputPageParserOutputIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * @covers \SDU\Hooks::onOutputPageParserOutput
+	 * @covers \SDU\Hooks
 	 */
 	public function testDoesNotRenderForANonExistentTitle() {
 		$title = Title::newFromText( 'SDUOutputPageNonExistentTestPage', NS_MAIN );
