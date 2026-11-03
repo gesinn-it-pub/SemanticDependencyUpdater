@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 ## [Unreleased]
 
 ### Changed
+- Remove an unreachable "no semantic data" branch from the page deletion handler
+  [`861a0d2`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/861a0d2)
 - Test against Semantic MediaWiki 7.4.0 instead of 7.3.1
   [`9ff15a9`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/9ff15a9)
 - Test against Semantic MediaWiki 7.3.1 instead of 7.2.0
