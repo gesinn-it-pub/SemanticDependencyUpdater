@@ -80,13 +80,6 @@ class Hooks {
 
 		$semanticData = $store->getSemanticData( $diWikiPage );
 
-		if ( $semanticData == null ) {
-			self::debugLog(
-				"[SDU] <-- No semantic data available during delete"
-			);
-			return true;
-		}
-
 		// Trigger dependency rebuild without diff iterator
 		self::runDependencyUpdateOnDelete( $semanticData );
 
