@@ -23,7 +23,18 @@
 	</rule>
 	<rule ref="MediaWiki.NamingConventions.ValidGlobalName">
 		<properties>
-			<property name="ignoreList" type="array" value="$sdgFiltersLargestFontSize,$sdgFiltersSmallestFontSize,$sdgHideCategoriesByDefault,$sdgMinValuesForComboBox,$sdgNumRangesForNumberFilters,$sdgNumResultsPerPage,$sdgScriptPath,$sdgShowCategoriesAsTabs,$smwgContLang,$smwgDefaultStore" />
+			<property name="ignoreList" type="array">
+				<element value="$sdgFiltersLargestFontSize" />
+				<element value="$sdgFiltersSmallestFontSize" />
+				<element value="$sdgHideCategoriesByDefault" />
+				<element value="$sdgMinValuesForComboBox" />
+				<element value="$sdgNumRangesForNumberFilters" />
+				<element value="$sdgNumResultsPerPage" />
+				<element value="$sdgScriptPath" />
+				<element value="$sdgShowCategoriesAsTabs" />
+				<element value="$smwgContLang" />
+				<element value="$smwgDefaultStore" />
+			</property>
 		</properties>
 	</rule>
 
