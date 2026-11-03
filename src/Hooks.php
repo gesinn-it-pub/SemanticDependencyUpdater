@@ -8,6 +8,7 @@ use MediaWiki\MediaWikiServices;
 use MediaWiki\Output\OutputPage;
 use MediaWiki\Parser\ParserOutput;
 use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
 use MediaWiki\User\User;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
@@ -746,7 +747,156 @@ class Hooks {
 		$jobQueueGroup->lazyPush( $job );
 	}
 
+	/**
+	 * Maximum number of refresh jobs queued for one page and one target
+	 * display title - see refreshStalePageProps().
+	 */
+	private const PAGE_PROPS_REFRESH_MAX_ATTEMPTS = 3;
+
+	private const PAGE_PROPS_REFRESH_TTL_SECONDS = 86400;
+
+	private const PAGE_PROPS_REFRESH_CACHE_NAMESPACE = 'sdu:page-props-refresh';
+
+	/**
+	 * Normalizes a display title for comparison: strips tags, decodes
+	 * entities, turns underscores into spaces and collapses whitespace.
+	 * Without it a stored "&amp;" versus a plain "&" would never converge.
+	 */
+	private static function normalizeDisplayTitle( string $value ): string {
+		$value = html_entity_decode( strip_tags( $value ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+		return trim( preg_replace( '/\s+/u', ' ', str_replace( '_', ' ', $value ) ) );
+	}
+
+	/**
+	 * @return string normalized display title SMW has stored (_DTITLE), or
+	 *  the page name if there is none
+	 */
+	private static function getSmwDisplayTitle( SemanticData $data, Title $title ): string {
+		foreach ( $data->getPropertyValues( new DIProperty( '_DTITLE' ) ) as $dataItem ) {
+			if ( $dataItem instanceof SMWDIBlob && trim( $dataItem->getString() ) !== '' ) {
+				return self::normalizeDisplayTitle( $dataItem->getString() );
+			}
+		}
+
+		return self::normalizeDisplayTitle( $title->getPrefixedText() );
+	}
+
+	/**
+	 * @return string normalized page_props display title, or the page name
+	 *  if there is none. Read from the primary DB: PageProps caches per
+	 *  process and replicas may lag behind the write this check follows.
+	 */
+	private static function getPagePropsDisplayTitle( Title $title ): string {
+		$value = MediaWikiServices::getInstance()->getConnectionProvider()->getPrimaryDatabase()
+			->newSelectQueryBuilder()
+			->select( 'pp_value' )
+			->from( 'page_props' )
+			->where( [ 'pp_page' => $title->getArticleID(), 'pp_propname' => 'displaytitle' ] )
+			->caller( __METHOD__ )
+			->fetchField();
+
+		if ( !is_string( $value ) || trim( $value ) === '' ) {
+			return self::normalizeDisplayTitle( $title->getPrefixedText() );
+		}
+
+		return self::normalizeDisplayTitle( $value );
+	}
+
+	/**
+	 * UpdateJobs only write the SMW store; MediaWiki's page_props are written
+	 * by LinksUpdate alone. For a page whose display title is derived from
+	 * other pages, SMW's _DTITLE is therefore current after SDU's update while
+	 * page_props.displaytitle keeps the value of the last real save, which is
+	 * what e.g. PageForms autocompletion and the DisplayTitle extension read.
+	 *
+	 * If the two differ (compared normalized), queue a prioritized
+	 * RefreshLinksJob for the page, without rootJobTimestamp so the page is
+	 * parsed fresh rather than served from the parser cache. SMW updates its
+	 * store from that LinksUpdate as well, so one parse fixes both.
+	 *
+	 * Skipped while a self-update cycle is pending for the page: an extra
+	 * store update inside the cycle would look like an empty diff and consume
+	 * its attempts. Bounded per page AND target title (the counter key
+	 * contains a hash of the target), so a genuinely new change starts at zero
+	 * but an unreachable target cannot loop.
+	 */
+	private static function refreshStalePageProps( SemanticData $newData ): void {
+		// Without this flag SMW never stores _DTITLE, so there is nothing to
+		// compare page_props against.
+		if ( !ApplicationFactory::getInstance()->getSettings()->isFlagSet( 'smwgDVFeatures', SMW_DV_WPV_DTITLE ) ) {
+			return;
+		}
+
+		$subject = $newData->getSubject();
+
+		if ( $subject->getSubobjectName() !== '' ) {
+			return;
+		}
+
+		$title = $subject->getTitle();
+
+		if ( $title === null || !$title->canExist() || !$title->exists() ) {
+			return;
+		}
+
+		$id = $title->getPrefixedDBKey();
+
+		if ( self::getSelfUpdateAttempt( $id ) > 0 ) {
+			return;
+		}
+
+		$target = self::getSmwDisplayTitle( $newData, $title );
+
+		if ( $target === self::getPagePropsDisplayTitle( $title ) ) {
+			return;
+		}
+
+		$cache = self::getSelfUpdateMarkerCache();
+		$key = smwfCacheKey( self::PAGE_PROPS_REFRESH_CACHE_NAMESPACE, $id . '|' . md5( $target ) );
+		$attempt = (int)$cache->get( $key );
+
+		if ( $attempt >= self::PAGE_PROPS_REFRESH_MAX_ATTEMPTS ) {
+			self::debugLog( "[SDU] page_props refresh limit reached: {$id}" );
+			return;
+		}
+
+		$cache->set( $key, $attempt + 1, self::PAGE_PROPS_REFRESH_TTL_SECONDS );
+
+		self::debugLog( "[SDU] Queueing page_props refresh: {$id} attempt=" . ( $attempt + 1 ) );
+
+		MediaWikiServices::getInstance()->getJobQueueGroup()->lazyPush(
+			\RefreshLinksJob::newPrioritized( $title, [ 'causeAction' => 'semantic-dependency-updater' ] )
+		);
+	}
+
+	/**
+	 * Test seam: how many page_props refreshes were queued for a page and
+	 * target display title.
+	 *
+	 * @internal for tests only
+	 */
+	public static function getPagePropsRefreshAttemptsForTesting( string $id, string $target ): int {
+		return (int)self::getSelfUpdateMarkerCache()->get(
+			smwfCacheKey( self::PAGE_PROPS_REFRESH_CACHE_NAMESPACE, $id . '|' . md5( self::normalizeDisplayTitle( $target ) ) )
+		);
+	}
+
 	public static function onAfterDataUpdateComplete(
+		Store $store,
+		SemanticData $newData,
+		$compositePropertyTableDiffIterator
+	) {
+		self::runDependencyUpdate( $store, $newData, $compositePropertyTableDiffIterator );
+
+		// After SDU's own handling, so the self-update-pending marker it may
+		// have just set is already visible to the check.
+		self::refreshStalePageProps( $newData );
+
+		return true;
+	}
+
+	private static function runDependencyUpdate(
 		Store $store,
 		SemanticData $newData,
 		$compositePropertyTableDiffIterator

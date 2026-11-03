@@ -6,6 +6,12 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 
 ## [Unreleased]
 
+### Fixed
+- Refresh `page_props.displaytitle` of pages whose display title depends on other
+  pages, so consumers such as PageForms autocompletion and the DisplayTitle
+  extension no longer show a stale title after SDU updated the page
+  ([#27](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/issues/27))
+
 ### Changed
 - Remove an unreachable "no semantic data" branch from the page deletion handler
   [`861a0d2`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/861a0d2)

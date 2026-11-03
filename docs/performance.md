@@ -92,6 +92,27 @@ A change that touches forced updates, cache invalidation or purges must in
 addition keep the integration tests passing, and the browser scenario must
 still end with the reload mechanism finishing cleanly.
 
+## Cost of the page_props refresh
+
+After SDU handles a store update, it compares the page's SMW display title
+(`_DTITLE`) with `page_props.displaytitle`. When both match (the normal case)
+the cost is one indexed primary-DB read of `page_props` per store update and
+no job. When they differ, one prioritized `refreshLinks` job is queued per
+changed page (at most 3 per page and target title). That job re-parses the
+page, which also rewrites the SMW store, and it makes MediaWiki purge the
+pages linking to it, so the total job count rises, almost all of it
+`htmlCacheUpdate` and, with the DisplayTitle extension, its purge jobs. The
+measurements below were taken by the author of issue #27 on a local setup
+with a fast `smw.update` lane; they have not been repeated with `tools/perf`:
+
+- 1 page, 20 dependents: all consistent after about 40 s.
+- 6 pages, 18 dependents (burst): all consistent after about 50 s.
+- Self-referencing page, 8 changes: consistent after 6 to 12 s.
+- Total jobs rise about 2x to 5x; no late jobs, no loops.
+
+To re-measure, run the scenarios in `tools/perf` before and after as
+described above.
+
 ## Scope of the measurements
 
 - The browser scenario reports when the reload mechanism ends. The remote
