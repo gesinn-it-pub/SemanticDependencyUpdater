@@ -798,7 +798,14 @@ class Hooks {
 	 *  process and replicas may lag behind the write this check follows.
 	 */
 	private static function getPagePropsDisplayTitle( Title $title ): string {
-		$value = MediaWikiServices::getInstance()->getConnectionProvider()->getPrimaryDatabase()
+		$services = MediaWikiServices::getInstance();
+
+		// getConnectionProvider() only exists from MediaWiki 1.40 on.
+		$db = method_exists( $services, 'getConnectionProvider' )
+			? $services->getConnectionProvider()->getPrimaryDatabase()
+			: $services->getDBLoadBalancer()->getConnectionRef( DB_PRIMARY );
+
+		$value = $db
 			->newSelectQueryBuilder()
 			->select( 'pp_value' )
 			->from( 'page_props' )
