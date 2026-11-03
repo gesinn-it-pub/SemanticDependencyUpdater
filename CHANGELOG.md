@@ -6,11 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 
 ## [Unreleased]
 
+## [5.1.1] - 2026-11-03
+
+Fixes stale display titles on pages that SDU updates.
+
 ### Fixed
 - Refresh `page_props.displaytitle` of pages whose display title depends on other
   pages, so consumers such as PageForms autocompletion and the DisplayTitle
   extension no longer show a stale title after SDU updated the page
-  ([#27](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/issues/27))
+  [`0dc75c0`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/0dc75c0) ([#27](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/issues/27))
 
 ### Changed
 - Remove an unreachable "no semantic data" branch from the page deletion handler
@@ -101,7 +105,8 @@ deletion-triggered dependency rebuilds, which were never actually wired up.
 - Replace PHPStan/Psalm with Phan for static analysis
   [`c4868d1`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/c4868d1)
 
-[Unreleased]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.0...HEAD
+[Unreleased]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.1...HEAD
+[5.1.1]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.0...5.1.1
 [5.1.0]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.0.2...5.1.0
 [5.0.2]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.0.1...5.0.2
 [5.0.1]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.0.0...5.0.1
