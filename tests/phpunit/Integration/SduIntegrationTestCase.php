@@ -84,7 +84,7 @@ abstract class SduIntegrationTestCase extends MediaWikiIntegrationTestCase {
 		Hooks::setup();
 	}
 
-	private function resetSmwCaches(): void {
+	protected function resetSmwCaches(): void {
 		\SMW\SQLStore\EntityStore\CachingSemanticDataLookup::clear();
 		\SMW\StoreFactory::clear();
 		\SMW\PropertyRegistry::clear();
@@ -210,6 +210,27 @@ abstract class SduIntegrationTestCase extends MediaWikiIntegrationTestCase {
 		}
 
 		$this->fail( 'No smw.update job ran within 10 drained jobs.' );
+	}
+
+	/**
+	 * Drains the whole job queue one job at a time, resetting SMW's
+	 * process-wide lookup cache before each job - unlike run( [] ), which
+	 * runs every job in this one process and lets a job see SemanticData that
+	 * an earlier job (or this test's own reads) left in that cache. In
+	 * production every job runs in its own process.
+	 */
+	protected function runAllJobsWithFreshCaches(): void {
+		for ( $i = 0; $i < 50; $i++ ) {
+			$this->resetSmwCaches();
+
+			$status = $this->getServiceContainer()->getJobRunner()->run( [ 'maxJobs' => 1 ] );
+
+			if ( $status['jobs'] === [] ) {
+				return;
+			}
+		}
+
+		$this->fail( 'Job queue did not run dry within 50 jobs.' );
 	}
 
 	/**
