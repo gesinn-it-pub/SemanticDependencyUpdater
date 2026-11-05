@@ -511,7 +511,56 @@ class Hooks {
 		) ) );
 	}
 
+	/**
+	 * @param DIWikiPage[] $a
+	 * @param DIWikiPage[] $b
+	 * @return DIWikiPage[] union, de-duplicated by serialization
+	 */
+	private static function mergeTargets( array $a, array $b ): array {
+		$merged = [];
+		foreach ( array_merge( $a, $b ) as $target ) {
+			$merged[$target->getSerialization()] = $target;
+		}
+		return array_values( $merged );
+	}
+
+	/**
+	 * Evaluates the page's own dependency values against the CURRENT store.
+	 *
+	 * @return DIWikiPage[] matching pages except the page itself
+	 */
+	private static function findCurrentRemoteTargets( string $id ): array {
+		global $wgSDUProperty;
+
+		$title = Title::newFromDBkey( $id );
+		if ( $title === null || !$title->exists() ) {
+			return [];
+		}
+
+		$subject = DIWikiPage::newFromTitle( $title );
+		$property = DIProperty::newFromUserLabel( str_replace( '_', ' ', $wgSDUProperty ) );
+		$targets = [];
+
+		foreach ( smwfGetStore()->getPropertyValues( $subject, $property ) as $value ) {
+			if ( !( $value instanceof SMWDIBlob ) ) {
+				continue;
+			}
+			foreach ( self::updatePagesMatchingQuery( $value->getSerialization() ) as $target ) {
+				if ( !$target->equals( $subject ) ) {
+					$targets[$target->getSerialization()] = $target;
+				}
+			}
+		}
+
+		return array_values( $targets );
+	}
+
 	private static function clearSelfUpdatePending( string $id ): void {
+		// Must be read BEFORE the marker is deleted below: only a page whose
+		// self-update cycle actually ran needs its dependency query
+		// evaluated again at the end of that cycle.
+		$hadCycle = self::getSelfUpdateAttempt( $id ) > 0;
+
 		self::getSelfUpdateMarkerCache()->delete(
 			smwfCacheKey( self::SELF_UPDATE_PENDING_CACHE_NAMESPACE, $id )
 		);
@@ -540,6 +589,14 @@ class Hooks {
 		// duplicating this call at each of those call sites individually,
 		// means no future new cycle-end path can forget it.
 		$remoteTargets = self::takeAndClearPendingRemoteTargets( $id );
+
+		// The dependency query ran on the first pass only. Pages created by
+		// that very save (e.g. via #createpageifnotex) did not exist in the
+		// store yet and were never found, so evaluate the query again now
+		// that the cycle has ended and release the union of both sets.
+		if ( $hadCycle ) {
+			$remoteTargets = self::mergeTargets( $remoteTargets, self::findCurrentRemoteTargets( $id ) );
+		}
 
 		if ( $remoteTargets ) {
 			self::debugLog(
