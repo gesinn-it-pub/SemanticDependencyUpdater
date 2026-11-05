@@ -820,7 +820,7 @@ class Hooks {
 	 */
 	private const PAGE_PROPS_REFRESH_MAX_ATTEMPTS = 3;
 
-	private const PAGE_PROPS_REFRESH_TTL_SECONDS = 86400;
+	private const PAGE_PROPS_REFRESH_TTL_SECONDS = 300;
 
 	private const PAGE_PROPS_REFRESH_CACHE_NAMESPACE = 'sdu:page-props-refresh';
 
