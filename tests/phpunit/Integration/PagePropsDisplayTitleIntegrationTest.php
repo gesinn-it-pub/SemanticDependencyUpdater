@@ -187,4 +187,35 @@ class PagePropsDisplayTitleIntegrationTest extends SduIntegrationTestCase {
 
 		$this->assertSame( 1, Hooks::getPagePropsRefreshAttemptsForTesting( 'SDUDtUnreachable', 'Another target' ) );
 	}
+
+	/**
+	 * A title that changes back and forth to the same values must be
+	 * refreshed again once the short repeat window has passed; the loop
+	 * protection only needs to cover that window, not a whole day.
+	 *
+	 * @covers \SDU\Hooks
+	 */
+	public function testRefreshLimitExpiresAfterTheRepeatWindow() {
+		$page = Title::newFromText( 'SDUDtWindow', NS_MAIN );
+		$this->editPage( $page, '{{DISPLAYTITLE:Old title}}' );
+		$this->runAllJobsWithFreshCaches();
+
+		$semanticData = new SemanticData( DIWikiPage::newFromTitle( $page ) );
+		$semanticData->addPropertyObjectValue( new DIProperty( '_DTITLE' ), new SMWDIBlob( 'Window target' ) );
+
+		$diff = $this->createMock( ChangeOp::class );
+		$diff->method( 'getOrderedDiffByTable' )->willReturn( [] );
+
+		for ( $i = 0; $i < 3; $i++ ) {
+			Hooks::onAfterDataUpdateComplete( smwfGetStore(), $semanticData, $diff );
+		}
+		$this->assertSame( 3, Hooks::getPagePropsRefreshAttemptsForTesting( 'SDUDtWindow', 'Window target' ) );
+
+		// Ten minutes later the counter must be gone.
+		$stash = $this->getServiceContainer()->getMainObjectStash();
+		$now = time() + 600;
+		$stash->setMockTime( $now );
+
+		$this->assertSame( 0, Hooks::getPagePropsRefreshAttemptsForTesting( 'SDUDtWindow', 'Window target' ) );
+	}
 }
