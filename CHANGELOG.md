@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 
 ## [Unreleased]
 
+### Fixed
+- Find pages that the same save creates (for example through `#createpageifnotex`
+  in a template) by evaluating a page's dependency query again when its
+  self-update cycle ends, so these pages no longer keep stale values
+  [`bf91211`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/bf91211) ([#28](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/issues/28))
+- Shorten the window of the display title refresh counter from 24 hours to five
+  minutes, so a title that changes back and forth is refreshed every time
+  [`89625d6`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/89625d6) ([#28](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/issues/28))
+
 ## [5.1.1] - 2026-11-03
 
 Fixes stale display titles on pages that SDU updates.
