@@ -6,13 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 
 ## [Unreleased]
 
+## [5.1.2] - 2026-11-05
+
+Fixes pages that stayed stale because they were created by the same save as their trigger.
+
 ### Fixed
-- Find pages that the same save creates (for example through `#createpageifnotex`
-  in a template) by evaluating a page's dependency query again when its
-  self-update cycle ends, so these pages no longer keep stale values
+- Update pages that a save creates itself (for example through a template) so they no longer keep stale values
   [`bf91211`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/bf91211) ([#28](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/issues/28))
-- Shorten the window of the display title refresh counter from 24 hours to five
-  minutes, so a title that changes back and forth is refreshed every time
+- Refresh a display title again after a few minutes when it changes back and forth between the same values
   [`89625d6`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/89625d6) ([#28](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/issues/28))
 
 ## [5.1.1] - 2026-11-03
@@ -114,7 +115,8 @@ deletion-triggered dependency rebuilds, which were never actually wired up.
 - Replace PHPStan/Psalm with Phan for static analysis
   [`c4868d1`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/c4868d1)
 
-[Unreleased]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.1...HEAD
+[Unreleased]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.2...HEAD
+[5.1.2]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.1...5.1.2
 [5.1.1]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.0...5.1.1
 [5.1.0]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.0.2...5.1.0
 [5.0.2]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.0.1...5.0.2
