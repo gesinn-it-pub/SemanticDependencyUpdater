@@ -57,7 +57,13 @@ Run-to-run noise: counts are exactly reproducible; timings vary by 1-3 %
   Since then an empty pass only counts as a confirmation if it is the pass of a
   forced update job the cycle queued itself (Semantic MediaWiki 7.4.0 or newer;
   see `isPassOfTheCycle()` in `src/Hooks.php`). The figures above predate that
-  change; whether it removes the early endings has not been measured yet.
+  change. In the same setup (SMW 7.4.1, one pass) none of 112 saves ended the
+  cycle too early after it (a purge flag forced before every save: 0 of 56;
+  plain saves: 0 of 28; a long-running job runner: 0 of 28), against 12 of 182 in
+  earlier series without it; those series were not run alternately. Not measured:
+  several users at the same time, and a replicated database. The rule tells
+  which pass counts; it cannot tell whether that pass already sees the final
+  state (for example with a lagging replica), which is why the default stays 2.
 - **Status poll interval** (`$wgSDUReloadPollIntervalMs`, default 250 ms, kept
   between 100 and 10000): the browser asks `action=sduselfupdatestatus` this
   often. A request costs about 22 ms; at 4 requests per second for the roughly
