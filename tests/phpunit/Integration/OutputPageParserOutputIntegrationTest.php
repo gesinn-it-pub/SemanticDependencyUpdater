@@ -75,6 +75,45 @@ class OutputPageParserOutputIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
+	 * The client polls the status API at the interval the server hands it,
+	 * via a data attribute of the prompt element - $wgSDUReloadPollIntervalMs,
+	 * default 250, kept within sane bounds so a misconfiguration can neither
+	 * hammer the wiki nor leave the editor waiting minutes.
+	 *
+	 * @dataProvider providePollIntervals
+	 * @covers \SDU\Hooks
+	 */
+	public function testPromptCarriesTheConfiguredPollInterval( $configured, int $expected ) {
+		if ( $configured !== 'unset' ) {
+			$this->overrideConfigValue( 'SDUReloadPollIntervalMs', $configured );
+		}
+
+		$title = Title::newFromText( 'SDUOutputPagePollIntervalPage' . md5( serialize( $configured ) ), NS_MAIN );
+
+		$this->editPage(
+			$title,
+			'{{#set:SDUTestSource=SourceValue}}'
+			. '{{#set:SDUTestDerived={{#show:{{FULLPAGENAME}}|?SDUTestSource}}}}'
+			. '{{#set:Semantic Dependency={{FULLPAGENAME}}}}'
+		);
+
+		$this->assertStringContainsString(
+			'data-poll-interval="' . $expected . '"',
+			$this->renderFor( $title )->getHTML()
+		);
+	}
+
+	public static function providePollIntervals(): array {
+		return [
+			'default' => [ 'unset', 250 ],
+			'configured' => [ 1000, 1000 ],
+			'too small is raised to the minimum' => [ 1, 100 ],
+			'too large is lowered to the maximum' => [ 600000, 10000 ],
+			'garbage falls back to the default' => [ 'abc', 250 ],
+		];
+	}
+
+	/**
 	 * @covers \SDU\Hooks
 	 */
 	public function testDoesNotRenderForThePostEditCookieAloneWithoutAPendingCycle() {

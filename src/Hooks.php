@@ -383,10 +383,51 @@ class Hooks {
 	 */
 	private const MAX_CONSECUTIVE_EMPTY_DIFFS = 2;
 
+	/** Bounds for $wgSDUReloadPollIntervalMs, see getReloadPollIntervalMs(). */
+	private const RELOAD_POLL_INTERVAL_DEFAULT_MS = 250;
+	private const RELOAD_POLL_INTERVAL_MIN_MS = 100;
+	private const RELOAD_POLL_INTERVAL_MAX_MS = 10000;
+
+	/**
+	 * Number of consecutive empty diffs that end a self-update cycle:
+	 * $wgSDUSettlePasses, defaulting to MAX_CONSECUTIVE_EMPTY_DIFFS. The
+	 * default suits setups with database replication, where an empty diff
+	 * can be a not-yet-replicated write. A wiki with a single database and
+	 * sequential job processing can set 1 and saves one full re-parse per
+	 * cycle (see docs/performance.md). Values below 1 count as 1.
+	 */
+	private static function getSettlePasses(): int {
+		global $wgSDUSettlePasses;
+
+		return is_numeric( $wgSDUSettlePasses )
+			? max( 1, (int)$wgSDUSettlePasses )
+			: self::MAX_CONSECUTIVE_EMPTY_DIFFS;
+	}
+
+	/**
+	 * Milliseconds between two status checks of the client-side reload
+	 * prompt: $wgSDUReloadPollIntervalMs, kept within
+	 * RELOAD_POLL_INTERVAL_MIN_MS and RELOAD_POLL_INTERVAL_MAX_MS so a
+	 * misconfiguration can neither flood the wiki with requests nor leave an
+	 * editor waiting for a reload long after the server is done.
+	 */
+	private static function getReloadPollIntervalMs(): int {
+		global $wgSDUReloadPollIntervalMs;
+
+		if ( !is_numeric( $wgSDUReloadPollIntervalMs ) ) {
+			return self::RELOAD_POLL_INTERVAL_DEFAULT_MS;
+		}
+
+		return max(
+			self::RELOAD_POLL_INTERVAL_MIN_MS,
+			min( self::RELOAD_POLL_INTERVAL_MAX_MS, (int)$wgSDUReloadPollIntervalMs )
+		);
+	}
+
 	/**
 	 * @return int the CURRENT consecutive-empty-diff count, i.e. the count
 	 *  BEFORE this call's own increment - so the caller can compare it
-	 *  against MAX_CONSECUTIVE_EMPTY_DIFFS to decide whether THIS diff is the
+	 *  against getSettlePasses() to decide whether THIS diff is the
 	 *  one that ends the cycle
 	 */
 	private static function incrementConsecutiveEmptyDiffs( string $id ): int {
@@ -769,7 +810,7 @@ class Hooks {
 		// rather than always waiting out the full budget.
 		$consecutiveEmptyDiffs = self::incrementConsecutiveEmptyDiffs( $id );
 
-		if ( $consecutiveEmptyDiffs >= self::MAX_CONSECUTIVE_EMPTY_DIFFS ) {
+		if ( $consecutiveEmptyDiffs >= self::getSettlePasses() ) {
 			self::debugLog(
 				"[SDU] <-- {$consecutiveEmptyDiffs} consecutive empty diffs, " .
 				"value has settled - ending self-update cycle early"
@@ -1453,6 +1494,7 @@ class Hooks {
 					'class' => 'sdu-reload-pending',
 					'data-title' => $id,
 					'data-revision-id' => $revId,
+					'data-poll-interval' => self::getReloadPollIntervalMs(),
 				]
 			)
 		);

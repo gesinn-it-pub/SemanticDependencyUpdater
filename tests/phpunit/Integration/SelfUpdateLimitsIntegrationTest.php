@@ -123,6 +123,64 @@ class SelfUpdateLimitsIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
+	 * $wgSDUSettlePasses is the number of consecutive empty re-parses that
+	 * end a self-update cycle. After the page's first forced re-parse found
+	 * nothing new, a threshold of 1 (or anything below, which is clamped to
+	 * 1) must end the cycle, while the default of 2 still needs one more
+	 * confirmation pass.
+	 *
+	 * @dataProvider provideSettlePasses
+	 * @covers \SDU\Hooks
+	 */
+	public function testSettlePassesDecideWhetherTheFirstEmptyPassEndsTheCycle(
+		$settlePasses,
+		bool $expectCycleEnded
+	) {
+		if ( $settlePasses !== 'unset' ) {
+			$this->overrideConfigValue( 'SDUSettlePasses', $settlePasses );
+		}
+
+		$title = Title::newFromText( 'SDUSettlePassesPage' . md5( serialize( $settlePasses ) ), NS_MAIN );
+
+		$this->editPage(
+			$title,
+			'{{#set:SDUTestSource=SettledValue}}{{#set:Semantic Dependency={{FULLPAGENAME}}}}'
+		);
+		$this->assertSelfUpdatePendingAttempt( 1, $title );
+
+		// The page's own forced re-parse finds nothing new: one empty pass.
+		$this->runJobsUntilOneUpdateJobRan();
+
+		if ( $expectCycleEnded ) {
+			$this->assertSelfUpdatePendingAttempt(
+				0,
+				$title,
+				"With \$wgSDUSettlePasses = " . var_export( $settlePasses, true ) .
+				' a single empty pass must end the cycle.'
+			);
+			$this->assertNotContains( $title->getPrefixedDBKey(), $this->getQueuedUpdateJobTitles() );
+		} else {
+			$this->assertSelfUpdatePendingAttemptAtLeast(
+				1,
+				$title,
+				"With \$wgSDUSettlePasses = " . var_export( $settlePasses, true ) .
+				' one empty pass is not yet enough to end the cycle.'
+			);
+			$this->assertContains( $title->getPrefixedDBKey(), $this->getQueuedUpdateJobTitles() );
+		}
+	}
+
+	public static function provideSettlePasses(): array {
+		return [
+			'1 ends after one empty pass' => [ 1, true ],
+			'0 is clamped to 1' => [ 0, true ],
+			'negative is clamped to 1' => [ -5, true ],
+			'2 needs a confirmation pass' => [ 2, false ],
+			'default (2) needs a confirmation pass' => [ 'unset', false ],
+		];
+	}
+
+	/**
 	 * The retry is delayed where the queue supports it, by the step that
 	 * belongs to the attempt. The test environment's DB-backed queue does
 	 * not support delayed jobs, so a queue that does is substituted for the

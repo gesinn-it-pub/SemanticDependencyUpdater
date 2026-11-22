@@ -42,6 +42,14 @@
 		"SDUProperty": {
 			"value": "Semantic Dependency"
 		},
+		"SDUSettlePasses": {
+			"value": 2,
+			"description": "Consecutive empty self-update passes that end an \"Update Self\" cycle (and let the waiting editor's browser reload). 2 is safe with database replication, where one empty pass can be a not-yet-replicated write. With a single database and sequential job processing 1 is enough and saves one re-parse per cycle. Values below 1 count as 1."
+		},
+		"SDUReloadPollIntervalMs": {
+			"value": 250,
+			"description": "Milliseconds between two checks of the browser's reload prompt asking whether an \"Update Self\" cycle is done (action=sduselfupdatestatus, a cheap read-only request). Lower values shorten the delay between the server being done and the page reloading. Kept between 100 and 10000."
+		},
 		"SDUIgnoredProperties": {
 			"value": [ "___REVID" ],
 			"description": "Property names whose changes alone must not trigger SDU. Defaults to SemanticExtraSpecialProperties' Revision ID property (___REVID), which - when enabled via $sespgEnabledPropertyList - changes on every single edit regardless of semantic content, verified empirically against a real installation. Harmless to keep if SemanticExtraSpecialProperties is not installed or ___REVID is not enabled."

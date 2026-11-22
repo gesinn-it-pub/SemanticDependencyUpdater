@@ -73,9 +73,20 @@
 	// comparable cost to ration - polling more slowly than necessary only
 	// adds latency between "the server is actually done" and "the editor
 	// finds out", for no corresponding benefit.
+	//
+	// The interval comes from the server ($wgSDUReloadPollIntervalMs, via the
+	// prompt element's data-poll-interval, already clamped there); this
+	// constant is only the fallback for markup that predates the attribute,
+	// e.g. a page served from a cache filled before an upgrade.
 	var POLL_INTERVAL_MS = 1000;
 
 	var reload = {
+		/**
+		 * Effective poll interval; replaced by the server-provided value in
+		 * run(). See POLL_INTERVAL_MS.
+		 */
+		pollIntervalMs: POLL_INTERVAL_MS,
+
 		storageKey: function ( title ) {
 			return 'mw-sdu-reload-retry-' + title;
 		},
@@ -222,7 +233,7 @@
 		},
 
 		/**
-		 * Repeatedly checks checkPending() every POLL_INTERVAL_MS until it
+		 * Repeatedly checks checkPending() every reload.pollIntervalMs until it
 		 * reports the cycle has ended, then reloads - purging once more
 		 * immediately beforehand so the reload cannot render a parser
 		 * output cached from a moment just before the cycle's own last
@@ -282,7 +293,7 @@
 						// actual waiting has happened would be disruptive
 						// rather than informative.
 						reload.poll( title, revisionId, startTime, nextAttempts, dialog || reload.showOverlay() );
-					}, POLL_INTERVAL_MS );
+					}, reload.pollIntervalMs );
 					return;
 				}
 
@@ -320,8 +331,13 @@
 		run: function ( context ) {
 			var title = context.data( 'title' ) || mw.config.get( 'wgPageName' );
 			var revisionId = String( context.data( 'revision-id' ) || mw.config.get( 'wgCurRevisionId' ) );
+			var pollInterval = parseInt( context.data( 'poll-interval' ), 10 );
 			var state = reload.getRetryState( title, revisionId );
 			var startTime = state.startTime || Date.now();
+
+			if ( pollInterval > 0 ) {
+				reload.pollIntervalMs = pollInterval;
+			}
 
 			// Shown immediately, without waiting for a fresh poll to
 			// confirm the cycle is still running, when state.attempts > 0:
