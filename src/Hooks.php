@@ -835,9 +835,21 @@ class Hooks {
 	 * Always goes through the real job queue with a delay (never
 	 * rebuildData()'s synchronous $job->run() path, which would re-run
 	 * immediately in the same request and give a lagging store no time to
-	 * catch up).
+	 * catch up).	 *
+	 * @param string $id prefixed DB key of the page
+	 * @param DIWikiPage $subject the page
+	 * @param bool $countsAsEmptyPass false for a pass that changed nothing but
+	 *  ignored properties: it keeps the cycle going (an ignored-only job pass
+	 *  that pushed nothing would leave the cycle hanging, with the queue
+	 *  empty), but it is no evidence that the value has settled - it may be
+	 *  an unrelated update while the cycle's own retry is still queued, and
+	 *  ending the cycle on it would skip that retry's check.
 	 */
-	private static function retrySelfUpdateIfWithinTraversalLimit( string $id, DIWikiPage $subject ): void {
+	private static function retrySelfUpdateIfWithinTraversalLimit(
+		string $id,
+		DIWikiPage $subject,
+		bool $countsAsEmptyPass = true
+	): void {
 		// See SELF_UPDATE_MAX_ATTEMPTS's own docblock: it is meant to always
 		// equal count( SELF_UPDATE_RETRY_DELAY_SECONDS ), but PHP does not
 		// allow that to be expressed as the const's own initializer, so it
@@ -888,15 +900,17 @@ class Hooks {
 		// would anyway, since $attempt already can't exceed it past this
 		// point), but stops as soon as the value has demonstrably settled,
 		// rather than always waiting out the full budget.
-		$consecutiveEmptyDiffs = self::incrementConsecutiveEmptyDiffs( $id );
+		if ( $countsAsEmptyPass ) {
+			$consecutiveEmptyDiffs = self::incrementConsecutiveEmptyDiffs( $id );
 
-		if ( $consecutiveEmptyDiffs >= self::getSettlePasses() ) {
-			self::debugLog(
-				"[SDU] <-- {$consecutiveEmptyDiffs} consecutive empty diffs, " .
-				"value has settled - ending self-update cycle early"
-			);
-			self::clearSelfUpdatePending( $id );
-			return;
+			if ( $consecutiveEmptyDiffs >= self::getSettlePasses() ) {
+				self::debugLog(
+					"[SDU] <-- {$consecutiveEmptyDiffs} consecutive empty diffs, " .
+					"value has settled - ending self-update cycle early"
+				);
+				self::clearSelfUpdatePending( $id );
+				return;
+			}
 		}
 
 		self::debugLog( "[SDU] <-- Retrying self-update (attempt {$attempt})" );
@@ -1172,6 +1186,16 @@ class Hooks {
 			self::debugLog(
 				"[SDU] <-- No SDU property '{$wgSDUProperty}' found"
 			);
+
+			// A page that loses its dependency property while a self-update
+			// cycle is still running has nothing left to wait for. Without
+			// ending the cycle here its marker stayed until it expired, and
+			// the remote targets held back for it were only released then -
+			// if at all. Pages without a running cycle are not affected.
+			if ( self::getSelfUpdateAttempt( $id ) > 0 ) {
+				self::clearSelfUpdatePending( $id );
+			}
+
 			return true;
 		}
 
@@ -1274,6 +1298,22 @@ class Hooks {
 				self::debugLog(
 					"[SDU] <-- Only ignored properties changed, skipping rebuild"
 				);
+
+				// A pass of a running self-update cycle that changed nothing
+				// but ignored properties must keep that cycle going. Returning
+				// without that left it neither ended nor retried: the reload
+				// marker stayed until it expired, the editor's browser waited
+				// for a reload that never came, and the job queue was already
+				// empty. It is not counted as an empty pass, though: it may
+				// be an unrelated update while the cycle's own retry is still
+				// queued (see the retry method's own docblock). Pages without
+				// a running cycle are not touched by this - the method
+				// returns at once for them, and nothing here re-parses
+				// anything (see the comment above).
+				if ( isset( $properties[$wgSDUProperty] ) ) {
+					self::retrySelfUpdateIfWithinTraversalLimit( $id, $subject, false );
+				}
+
 				return true;
 			}
 

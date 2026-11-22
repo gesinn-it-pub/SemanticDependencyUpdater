@@ -181,6 +181,99 @@ class SelfUpdateLimitsIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
+	 * A pass of a running self-update cycle whose only difference is an ignored
+	 * property (in production usually SESP's revision ID, which can differ
+	 * between a save's own store update and the job that follows it) finds
+	 * nothing the cycle could still change. It must count like an empty pass.
+	 * Left alone, the cycle neither ended nor retried: the reload marker stayed
+	 * until it expired and the editor's browser waited for a reload that never
+	 * came, with the job queue already empty.
+	 *
+	 * The cycle's own derived value is put on the ignored list here, so that
+	 * the one job pass that resolves it has an ignored-only difference.
+	 *
+	 * @covers \SDU\Hooks
+	 */
+	public function testPassWithOnlyIgnoredChangesDoesNotLeaveTheCycleHanging() {
+		global $wgSDUIgnoredProperties;
+
+		$wgSDUIgnoredProperties = [ 'SDUTestDerived' ];
+
+		$title = Title::newFromText( 'SDULimitIgnoredOnlyPassPage', NS_MAIN );
+
+		$this->editPage(
+			$title,
+			'{{#set:SDUTestSource=IgnoredValue}}'
+			. '{{#set:SDUTestDerived={{#show:{{FULLPAGENAME}}|?SDUTestSource}}}}'
+			. '{{#set:Semantic Dependency={{FULLPAGENAME}}}}'
+		);
+		$this->assertSelfUpdatePendingAttempt( 1, $title );
+
+		$this->runAllJobsWithFreshCaches();
+
+		$this->assertSelfUpdatePendingAttempt(
+			0,
+			$title,
+			'The cycle must have ended once nothing but ignored properties was left to change.'
+		);
+		$this->assertFalse(
+			Hooks::isSelfUpdateReloadPending( $title->getPrefixedDBKey(), $title->getLatestRevID() ),
+			'No reload may stay pending after the cycle is over.'
+		);
+	}
+
+	/**
+	 * Pages that are not in a cycle must not start one because of an
+	 * ignored-only change - the property exists precisely so that such
+	 * changes trigger nothing.
+	 *
+	 * @covers \SDU\Hooks
+	 */
+	public function testIgnoredOnlyChangeOnAPageWithoutACycleStartsNothing() {
+		global $wgSDUIgnoredProperties;
+
+		$wgSDUIgnoredProperties = [ 'SDUTestSource' ];
+
+		$title = Title::newFromText( 'SDULimitIgnoredOnlyNoCyclePage', NS_MAIN );
+
+		$this->editPage( $title, '{{#set:SDUTestSource=Only}}{{#set:Semantic Dependency=SDULimitSomeOtherPage}}' );
+		$this->runAllJobsWithFreshCaches();
+		$this->editPage( $title, '{{#set:SDUTestSource=Changed}}{{#set:Semantic Dependency=SDULimitSomeOtherPage}}' );
+
+		$this->assertSelfUpdatePendingAttempt( 0, $title );
+		$this->assertNotContains( $title->getPrefixedDBKey(), $this->getQueuedUpdateJobTitles() );
+	}
+
+	/**
+	 * A save that takes the dependency property off a page while its
+	 * self-update cycle is still running ends that cycle: nothing is left to
+	 * wait for, and the targets held back for it must not stay held back
+	 * until the marker expires.
+	 *
+	 * @covers \SDU\Hooks
+	 */
+	public function testRemovingTheDependencyPropertyEndsARunningCycle() {
+		$title = Title::newFromText( 'SDULimitPropertyRemovedPage', NS_MAIN );
+
+		$this->editPage(
+			$title,
+			'{{#set:SDUTestSource=Value}}{{#set:Semantic Dependency={{FULLPAGENAME}}}}'
+		);
+		$this->assertSelfUpdatePendingAttempt( 1, $title );
+
+		$this->editPage( $title, '{{#set:SDUTestSource=Value}}' );
+
+		$this->assertSelfUpdatePendingAttempt(
+			0,
+			$title,
+			'Without the dependency property no self-update cycle may stay pending.'
+		);
+		$this->assertFalse(
+			Hooks::isSelfUpdateReloadPending( $title->getPrefixedDBKey(), $title->getLatestRevID() )
+		);
+	}
+
+	/**
 	 * The retry is delayed where the queue supports it, by the step that
 	 * belongs to the attempt. The test environment's DB-backed queue does
 	 * not support delayed jobs, so a queue that does is substituted for the

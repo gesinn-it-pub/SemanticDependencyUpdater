@@ -19,6 +19,10 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
   second, so the page reloads sooner once the server is done
 
 ### Fixed
+- End or continue a running "Update Self" cycle when a pass changes nothing but ignored properties
+  (usually the revision ID after two quick saves in a row) or when the page loses its dependency
+  property. Until now the cycle stayed pending with an empty job queue, the reload prompt waited
+  for a reload that never came, and the targets held back for it were released only by chance
 - Let an "Update Self" cycle run to its end when one process works off all its jobs (`runJobs.php`
   without limits or with `--wait`). Until now a cycle needing more than two genuine passes was cut
   short there: it never ended and the dependency targets held back for it were never updated
