@@ -14,6 +14,11 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 - `reload` field in the `sduselfupdatestatus` API response: whether the page may have changed
 
 ### Changed
+- During a running "Update Self" cycle only the pass of a job that cycle queued counts as evidence that
+  the cycle has settled (Semantic MediaWiki 7.4.0 or newer). Other store updates of the page - the refresh
+  SMW runs after a purge, an update from another request, a job of an earlier cycle - can be empty
+  without saying anything about the state the cycle waits for; they no longer end the cycle or use up an
+  attempt
 - Check the status of a pending "Update Self" reload every 250 ms instead of every
   second, so the page reloads sooner once the server is done
 

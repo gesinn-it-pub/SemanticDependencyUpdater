@@ -4,6 +4,7 @@ namespace SDU;
 
 use MediaWiki\Deferred\DeferredUpdates;
 use MediaWiki\Html\Html;
+use MediaWiki\Http\Telemetry;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Output\OutputPage;
 use MediaWiki\Page\PageIdentity;
@@ -14,6 +15,7 @@ use MediaWiki\Title\Title;
 use MediaWiki\User\User;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
+use SMW\Enum;
 use SMW\MediaWiki\Jobs\UpdateJob;
 use SMW\SemanticData;
 use SMW\Services\ServicesFactory as ApplicationFactory;
@@ -350,6 +352,99 @@ class Hooks {
 		);
 	}
 
+	private const CYCLE_REQUEST_IDS_CACHE_NAMESPACE = 'sdu:cycle-request-ids';
+
+	/** More than the attempts of a cycle can ever contribute; only keeps the entry small. */
+	private const CYCLE_REQUEST_IDS_MAX = 10;
+
+	/**
+	 * The oldest SMW version for which the pass of a forced UpdateJob is known
+	 * to be recognisable (checked on 7.4.0): its UpdateJob marks the
+	 * SemanticData of such a pass with Enum::FORCED_UPDATE. For older versions
+	 * every pass is taken as evidence, as before.
+	 */
+	private const PASS_PROVENANCE_MIN_SMW_VERSION = '7.4.0';
+
+	/**
+	 * Remembers the request that made a real change during the running
+	 * self-update cycle of the page. A job carries the ID of the request that
+	 * queued it (and a job queued by a job inherits it), so the passes of the
+	 * jobs this cycle queued are exactly those whose request ID is in this
+	 * list - the ID of ANY real pass of the cycle, not just the latest: the
+	 * job queue treats identical jobs of different requests as duplicates and
+	 * keeps the one that was queued first.
+	 */
+	private static function rememberCycleRequest( string $id ): void {
+		$cache = self::getSelfUpdateMarkerCache();
+		$key = smwfCacheKey( self::CYCLE_REQUEST_IDS_CACHE_NAMESPACE, $id );
+
+		$requestIds = $cache->get( $key );
+		$requestIds = is_array( $requestIds ) ? $requestIds : [];
+		$requestIds[] = Telemetry::getInstance()->getRequestId();
+
+		$cache->set(
+			$key,
+			array_slice( array_values( array_unique( $requestIds ) ), -self::CYCLE_REQUEST_IDS_MAX ),
+			self::SELF_UPDATE_PENDING_TTL_SECONDS
+		);
+	}
+
+	/**
+	 * Whether a pass of the running self-update cycle that found nothing new
+	 * (an empty difference, or one that only touches ignored properties) is
+	 * evidence that the cycle has settled.
+	 *
+	 * It is only if it is the pass of a job this cycle queued: that job
+	 * re-parses the page after everything the cycle wrote so far, so finding
+	 * nothing new means the derived values are final. Any other store update
+	 * of the page can be empty without saying anything about that: the refresh
+	 * SMW runs at the next parse after a purge, an update from another
+	 * request, a job of an earlier cycle that happens to finish just now. Such
+	 * a pass must neither end the cycle nor use up one of its attempts.
+	 *
+	 * A pass belongs to the cycle if its SemanticData is marked as the result
+	 * of a forced UpdateJob (which is what SDU queues) and the request that
+	 * queued that job is one that made a real change during the cycle.
+	 */
+	private static function isPassOfTheCycle( string $id, SemanticData $newData ): bool {
+		if ( !defined( 'SMW_VERSION' ) || version_compare( SMW_VERSION, self::PASS_PROVENANCE_MIN_SMW_VERSION, '<' ) ) {
+			return true;
+		}
+
+		if ( $newData->getOption( Enum::FORCED_UPDATE ) === null ) {
+			return false;
+		}
+
+		$requestIds = self::getSelfUpdateMarkerCache()->get(
+			smwfCacheKey( self::CYCLE_REQUEST_IDS_CACHE_NAMESPACE, $id )
+		);
+
+		// Without the list (it was evicted) there is nothing to compare with:
+		// take the pass, as before.
+		return !is_array( $requestIds ) || in_array( Telemetry::getInstance()->getRequestId(), $requestIds, true );
+	}
+
+	/**
+	 * A store update of the page found nothing new. During a running cycle
+	 * that only matters if it is the pass of a job of the cycle - see
+	 * isPassOfTheCycle(); then it counts as an empty pass and the cycle goes
+	 * on (retry) or ends (settled).
+	 */
+	private static function handlePassWithoutNewData( string $id, DIWikiPage $subject, SemanticData $newData ): void {
+		if ( self::getSelfUpdateAttempt( $id ) === 0 ) {
+			return;
+		}
+
+		if ( !self::isPassOfTheCycle( $id, $newData ) ) {
+			self::debugLog(
+				"[SDU] <-- Not a pass of this cycle's own job, it counts neither as an empty pass nor as an attempt"
+			);
+			return;
+		}
+
+		self::retrySelfUpdateIfWithinTraversalLimit( $id, $subject );
+	}
+
 	private const CONSECUTIVE_EMPTY_DIFFS_CACHE_NAMESPACE = 'sdu:consecutive-empty-diffs';
 
 	/**
@@ -594,6 +689,9 @@ class Hooks {
 
 		self::getSelfUpdateMarkerCache()->delete(
 			smwfCacheKey( self::SELF_UPDATE_PENDING_CACHE_NAMESPACE, $id )
+		);
+		self::getSelfUpdateMarkerCache()->delete(
+			smwfCacheKey( self::CYCLE_REQUEST_IDS_CACHE_NAMESPACE, $id )
 		);
 
 		// The cycle this attempt count belonged to is now over (either
@@ -866,21 +964,9 @@ class Hooks {
 	 * Always goes through the real job queue with a delay (never
 	 * rebuildData()'s synchronous $job->run() path, which would re-run
 	 * immediately in the same request and give a lagging store no time to
-	 * catch up).	 *
-	 * @param string $id prefixed DB key of the page
-	 * @param DIWikiPage $subject the page
-	 * @param bool $countsAsEmptyPass false for a pass that changed nothing but
-	 *  ignored properties: it keeps the cycle going (an ignored-only job pass
-	 *  that pushed nothing would leave the cycle hanging, with the queue
-	 *  empty), but it is no evidence that the value has settled - it may be
-	 *  an unrelated update while the cycle's own retry is still queued, and
-	 *  ending the cycle on it would skip that retry's check.
+	 * catch up).
 	 */
-	private static function retrySelfUpdateIfWithinTraversalLimit(
-		string $id,
-		DIWikiPage $subject,
-		bool $countsAsEmptyPass = true
-	): void {
+	private static function retrySelfUpdateIfWithinTraversalLimit( string $id, DIWikiPage $subject ): void {
 		// See SELF_UPDATE_MAX_ATTEMPTS's own docblock: it is meant to always
 		// equal count( SELF_UPDATE_RETRY_DELAY_SECONDS ), but PHP does not
 		// allow that to be expressed as the const's own initializer, so it
@@ -931,17 +1017,15 @@ class Hooks {
 		// would anyway, since $attempt already can't exceed it past this
 		// point), but stops as soon as the value has demonstrably settled,
 		// rather than always waiting out the full budget.
-		if ( $countsAsEmptyPass ) {
-			$consecutiveEmptyDiffs = self::incrementConsecutiveEmptyDiffs( $id );
+		$consecutiveEmptyDiffs = self::incrementConsecutiveEmptyDiffs( $id );
 
-			if ( $consecutiveEmptyDiffs >= self::getSettlePasses() ) {
-				self::debugLog(
-					"[SDU] <-- {$consecutiveEmptyDiffs} consecutive empty diffs, " .
-					"value has settled - ending self-update cycle early"
-				);
-				self::clearSelfUpdatePending( $id );
-				return;
-			}
+		if ( $consecutiveEmptyDiffs >= self::getSettlePasses() ) {
+			self::debugLog(
+				"[SDU] <-- {$consecutiveEmptyDiffs} consecutive empty diffs, " .
+				"value has settled - ending self-update cycle early"
+			);
+			self::clearSelfUpdatePending( $id );
+			return;
 		}
 
 		self::debugLog( "[SDU] <-- Retrying self-update (attempt {$attempt})" );
@@ -1331,18 +1415,16 @@ class Hooks {
 				);
 
 				// A pass of a running self-update cycle that changed nothing
-				// but ignored properties must keep that cycle going. Returning
-				// without that left it neither ended nor retried: the reload
+				// but ignored properties found nothing new, like an empty
+				// pass - see handlePassWithoutNewData(). Returning without
+				// that left the cycle neither ended nor retried: the reload
 				// marker stayed until it expired, the editor's browser waited
 				// for a reload that never came, and the job queue was already
-				// empty. It is not counted as an empty pass, though: it may
-				// be an unrelated update while the cycle's own retry is still
-				// queued (see the retry method's own docblock). Pages without
-				// a running cycle are not touched by this - the method
-				// returns at once for them, and nothing here re-parses
-				// anything (see the comment above).
+				// empty. Pages without a running cycle are not touched by
+				// this, and nothing here re-parses anything (see the comment
+				// above).
 				if ( isset( $properties[$wgSDUProperty] ) ) {
-					self::retrySelfUpdateIfWithinTraversalLimit( $id, $subject, false );
+					self::handlePassWithoutNewData( $id, $subject, $newData );
 				}
 
 				return true;
@@ -1365,7 +1447,7 @@ class Hooks {
 			// it, so this deliberately does not try to tell the two cases
 			// apart.
 			if ( isset( $properties[$wgSDUProperty] ) ) {
-				self::retrySelfUpdateIfWithinTraversalLimit( $id, $subject );
+				self::handlePassWithoutNewData( $id, $subject, $newData );
 			}
 
 			return true;
@@ -1443,6 +1525,7 @@ class Hooks {
 			// does not survive across real job-queue-runner process
 			// boundaries, only within a single one.
 			$attempt = self::markSelfUpdatePending( $id );
+			self::rememberCycleRequest( $id );
 
 			// A REAL diff just landed - the value is still actively changing,
 			// so any consecutive-empty-diff streak counted so far no longer

@@ -54,6 +54,10 @@ Run-to-run noise: counts are exactly reproducible; timings vary by 1-3 %
   of 27. That setup differed from the test wiki in several ways at once, and
   the cause has not been pinned down. Measure your own setup, with enough saves
   to see a rate of a few percent, before lowering it.
+  Since then an empty pass only counts as a confirmation if it is the pass of a
+  forced update job the cycle queued itself (Semantic MediaWiki 7.4.0 or newer;
+  see `isPassOfTheCycle()` in `src/Hooks.php`). The figures above predate that
+  change; whether it removes the early endings has not been measured yet.
 - **Status poll interval** (`$wgSDUReloadPollIntervalMs`, default 250 ms, kept
   between 100 and 10000): the browser asks `action=sduselfupdatestatus` this
   often. A request costs about 22 ms; at 4 requests per second for the roughly
