@@ -47,7 +47,7 @@
 		},
 		"SDUSettlePasses": {
 			"value": 2,
-			"description": "Consecutive empty self-update passes that end an \"Update Self\" cycle (and let the waiting editor's browser reload). 2 is safe with database replication, where one empty pass can be a not-yet-replicated write. With a single database and sequential job processing 1 is enough and saves one re-parse per cycle. Values below 1 count as 1."
+			"description": "Consecutive empty self-update passes that end an \"Update Self\" cycle (and let the waiting editor's browser reload). 2 is the safe default: a single empty pass can be a store write that is not visible yet (database replication, or a pass that still sees the state from before the save), and with 1 the cycle then ends before the page has its final values. 1 saves one re-parse per cycle (about 0.9 s on a small test page) but was seen to end a cycle too early in about 5 % of the saves in one measured setup (2 of 42, none of 27 with 2). Lower it only after measuring your own setup. Values below 1 count as 1."
 		},
 		"SDUReloadPollIntervalMs": {
 			"value": 250,

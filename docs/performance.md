@@ -44,12 +44,16 @@ Run-to-run noise: counts are exactly reproducible; timings vary by 1-3 %
   is correct, so it must not be shortened without the integration tests and a
   before/after run of the harness below.
   The number of confirmation passes is configurable
-  (`$wgSDUSettlePasses`, default 2, which is the safe choice with database
-  replication). A wiki with a single database and sequential job processing can
-  set it to 1 and saves one re-parse per cycle (about 0.9 s on a page with a few
-  dependent subobjects, measured once on one page and one database). Run the
-  integration tests and the harness below before lowering it on a wiki whose
-  derived values settle over several waiting follow-up updates.
+  (`$wgSDUSettlePasses`, default 2). With 1 a wiki saves one re-parse per
+  cycle (about 0.9 s on a small test page, measured once on one page and one
+  database), but a single empty pass then ends the cycle. That pass can be one
+  that does not see the final state yet, for example one that runs in the
+  process that has just written the page. In one measured setup (a large page,
+  a single database, memcached) 1 ended the cycle too early in about 5 % of the
+  saves (2 of 42; the page then showed old values after the reload), 2 in none
+  of 27. That setup differed from the test wiki in several ways at once, and
+  the cause has not been pinned down. Measure your own setup, with enough saves
+  to see a rate of a few percent, before lowering it.
 - **Status poll interval** (`$wgSDUReloadPollIntervalMs`, default 250 ms, kept
   between 100 and 10000): the browser asks `action=sduselfupdatestatus` this
   often. A request costs about 22 ms; at 4 requests per second for the roughly

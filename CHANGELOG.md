@@ -8,8 +8,7 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 
 ### Added
 - `$wgSDUSettlePasses` (default 2): number of consecutive empty re-parses that end
-  an "Update Self" cycle. Wikis with a single database and sequential job
-  processing can set 1 to save one re-parse per cycle
+  an "Update Self" cycle; 1 saves one re-parse per cycle but can end a cycle too early
 - `$wgSDUReloadPollIntervalMs` (default 250, between 100 and 10000): how often the
   browser asks whether an "Update Self" cycle is done
 - `reload` field in the `sduselfupdatestatus` API response: whether the page may have changed
@@ -17,6 +16,10 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 ### Changed
 - Check the status of a pending "Update Self" reload every 250 ms instead of every
   second, so the page reloads sooner once the server is done
+
+### Documentation
+- Describe `$wgSDUSettlePasses = 1` as a trade-off instead of a safe choice for a single database: in one
+  measured setup it ended a cycle too early in about 5 % of the saves
 
 ### Fixed
 - Keep the reload prompt of a save until that save's own update has decided whether a reload is needed. A
