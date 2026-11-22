@@ -19,6 +19,10 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
   second, so the page reloads sooner once the server is done
 
 ### Fixed
+- Keep the reload prompt of a save until that save's own update has decided whether a reload is needed. A
+  store update of the same page in another process (for example a job of an earlier cycle finishing just
+  then) could take the prompt away, so the editor was told there was nothing to wait for while the page
+  still showed the old values
 - End or continue a running "Update Self" cycle when a pass changes nothing but ignored properties
   (usually the revision ID after two quick saves in a row) or when the page loses its dependency
   property. Until now the cycle stayed pending with an empty job queue, the reload prompt waited

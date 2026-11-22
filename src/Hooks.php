@@ -731,8 +731,31 @@ class Hooks {
 		);
 	}
 
+	/**
+	 * Pages whose provisional reload marker THIS process set, by prefixed DB
+	 * key. Only this process - the one that handled the save - runs the
+	 * store update of that very save (MediaWiki defers it to the end of the
+	 * same request), so only it may decide that the marker was not needed.
+	 * A store update of the same page in another process (a leftover job of
+	 * an earlier cycle, say) in between says nothing about this save; if it
+	 * could take the marker away, the editor would be told there is nothing
+	 * to wait for while the page still shows the old values.
+	 *
+	 * @var array<string,int>
+	 */
+	private static array $provisionalMarkersOwnedHere = [];
+
+	/**
+	 * @internal for tests only: lets a test stand in for another process
+	 */
+	public static function forgetProvisionalMarkersOwnedByThisProcessForTesting(): void {
+		self::$provisionalMarkersOwnedHere = [];
+	}
+
 	private static function setProvisionalReloadPending( string $id, int $revId ): void {
 		self::debugLog( "[SDU] provisional reload marker (before the store update): {$id} revId={$revId}" );
+
+		self::$provisionalMarkersOwnedHere[$id] = $revId;
 
 		self::getSelfUpdateMarkerCache()->set(
 			smwfCacheKey( self::RELOAD_PENDING_CACHE_NAMESPACE, $id ),
@@ -749,6 +772,14 @@ class Hooks {
 	 * own end (clearSelfUpdatePending()) removes the marker.
 	 */
 	private static function withdrawProvisionalReloadPending( string $id ): void {
+		if ( !isset( self::$provisionalMarkersOwnedHere[$id] ) ) {
+			// Not set by this process: leave the decision to the process
+			// that did, or to the marker's short lifetime.
+			return;
+		}
+
+		unset( self::$provisionalMarkersOwnedHere[$id] );
+
 		$cache = self::getSelfUpdateMarkerCache();
 		$pendingRev = $cache->get( smwfCacheKey( self::RELOAD_PENDING_CACHE_NAMESPACE, $id ) );
 

@@ -9,6 +9,8 @@ use MediaWiki\Request\FauxRequest;
 use MediaWiki\Storage\EditResult;
 use MediaWiki\Title\Title;
 use SDU\Hooks;
+use SMW\DIWikiPage;
+use SMW\SQLStore\ChangeOp\ChangeOp;
 use Wikimedia\Rdbms\IDBAccessObject;
 
 /**
@@ -312,6 +314,59 @@ class OutputPageParserOutputIntegrationTest extends SduIntegrationTestCase {
 		$this->assertFalse(
 			Hooks::isSelfUpdateReloadPending( $title->getPrefixedDBKey(), $title->getLatestRevID() )
 		);
+	}
+
+	/**
+	 * The store update of the save itself runs after the response, in the
+	 * request that handled the save. A store update of the same page in
+	 * ANOTHER process in between - a leftover job of an earlier cycle that
+	 * happens to finish just then - says nothing about this save, and must not
+	 * take the marker away: the editor would then be told "nothing to wait
+	 * for" and keep looking at the old values.
+	 *
+	 * @covers \SDU\Hooks
+	 */
+	public function testStoreUpdateOfAnotherProcessDoesNotWithdrawTheProvisionalMarker() {
+		$title = Title::newFromText( 'SDUOutputPageOtherProcessPage', NS_MAIN );
+		$text = '{{#set:SDUTestSource=A}}{{#set:Semantic Dependency={{FULLPAGENAME}}}}';
+
+		$this->editPage( $title, $text );
+		$this->runAllJobsWithFreshCaches();
+
+		$pendingAfterOtherProcess = null;
+
+		$this->setTemporaryHook(
+			'PageSaveComplete',
+			function ( $wikiPage, $user, $summary, $flags, $revisionRecord ) use ( $title, &$pendingAfterOtherProcess ) {
+				if ( !$wikiPage->getTitle()->equals( $title ) ) {
+					return;
+				}
+
+				// From here on the code stands in for a different PHP process.
+				Hooks::forgetProvisionalMarkersOwnedByThisProcessForTesting();
+
+				$subject = DIWikiPage::newFromTitle( $title );
+				$diff = $this->createMock( ChangeOp::class );
+				$diff->method( 'getOrderedDiffByTable' )->willReturn( [] );
+				$diff->method( 'getSubject' )->willReturn( $subject );
+
+				Hooks::onAfterDataUpdateComplete(
+					smwfGetStore(),
+					smwfGetStore()->getSemanticData( $subject ),
+					$diff
+				);
+
+				$pendingAfterOtherProcess = Hooks::isSelfUpdateReloadPending(
+					$title->getPrefixedDBKey(),
+					$revisionRecord->getId()
+				);
+			},
+			false
+		);
+
+		$this->editPage( $title, str_replace( 'SDUTestSource=A', 'SDUTestSource=B', $text ) );
+
+		$this->assertTrue( $pendingAfterOtherProcess );
 	}
 
 	/**
