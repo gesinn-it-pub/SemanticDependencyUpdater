@@ -32,6 +32,9 @@
 		],
 		"OutputPageParserOutput": [
 			"SDU\\Hooks::onOutputPageParserOutput"
+		],
+		"PageSaveComplete": [
+			"SDU\\Hooks::onPageSaveComplete"
 		]
 	},
 	"callback": "SDU\\Hooks::setup",

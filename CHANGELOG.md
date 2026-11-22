@@ -12,10 +12,17 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
   processing can set 1 to save one re-parse per cycle
 - `$wgSDUReloadPollIntervalMs` (default 250, between 100 and 10000): how often the
   browser asks whether an "Update Self" cycle is done
+- `reload` field in the `sduselfupdatestatus` API response: whether the page may have changed
 
 ### Changed
 - Check the status of a pending "Update Self" reload every 250 ms instead of every
   second, so the page reloads sooner once the server is done
+
+### Fixed
+- Show the reload prompt after saving a page that names itself as a dependency even when the
+  browser asks for the page before SDU has run (typical for heavier pages, e.g. saved through a
+  form). Until now the prompt was missing in that case and the editor kept seeing the old values
+- Do not reload the page when SDU found nothing to update after the prompt was shown
 
 ## [5.1.2] - 2026-11-05
 

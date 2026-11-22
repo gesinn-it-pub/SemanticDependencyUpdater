@@ -100,6 +100,61 @@ class ApiSduSelfUpdateStatusIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
+	 * The reload prompt can be shown before SDU knows whether the save causes
+	 * a self-update cycle at all. Once that is decided, the API must say
+	 * whether the page may have changed (reload) - otherwise every edit that
+	 * leaves the semantic data alone would still reload the editor's page.
+	 *
+	 * @covers \SDU\Api\ApiSduSelfUpdateStatus
+	 */
+	public function testReportsReloadAfterASelfUpdateCycleThatChangedTheData() {
+		$title = Title::newFromText( 'SDUApiStatusReloadTestPage', NS_MAIN );
+
+		$this->editPage( $title, '{{#set:SDUTestSource=SourceValue}}'
+			. '{{#set:SDUTestDerived={{#show:{{FULLPAGENAME}}|?SDUTestSource}}}}'
+			. '{{#set:Semantic Dependency={{FULLPAGENAME}}}}' );
+		$revId = $title->getLatestRevID();
+
+		$this->runAllJobsWithFreshCaches();
+
+		$result = $this->callApi( [ 'title' => $title->getPrefixedText(), 'revid' => (string)$revId ] );
+
+		$this->assertSame( false, $result['sduselfupdatestatus']['pending'] );
+		$this->assertSame(
+			true,
+			$result['sduselfupdatestatus']['reload'],
+			'A cycle that updated the page means the editor must reload to see the final values.'
+		);
+	}
+
+	/**
+	 * @covers \SDU\Api\ApiSduSelfUpdateStatus
+	 */
+	public function testReportsNoReloadForASaveThatLeftTheSemanticDataAlone() {
+		$title = Title::newFromText( 'SDUApiStatusNoReloadTestPage', NS_MAIN );
+		$semantic = '{{#set:SDUTestSource=SourceValue}}'
+			. '{{#set:SDUTestDerived={{#show:{{FULLPAGENAME}}|?SDUTestSource}}}}'
+			. '{{#set:Semantic Dependency={{FULLPAGENAME}}}}';
+
+		$this->editPage( $title, $semantic );
+		$this->runAllJobsWithFreshCaches();
+
+		// Only prose changes: no semantic change, so no self-update cycle.
+		$this->editPage( $title, $semantic . "\nSome more prose." );
+		$revId = $title->getLatestRevID();
+		$this->runAllJobsWithFreshCaches();
+
+		$result = $this->callApi( [ 'title' => $title->getPrefixedText(), 'revid' => (string)$revId ] );
+
+		$this->assertSame( false, $result['sduselfupdatestatus']['pending'] );
+		$this->assertSame(
+			false,
+			$result['sduselfupdatestatus']['reload'],
+			'Without a self-update cycle the page content cannot have changed: no reload.'
+		);
+	}
+
+	/**
 	 * @covers \SDU\Api\ApiSduSelfUpdateStatus
 	 */
 	public function testReportsPendingFalseForATitleThatWasNeverSelfReferencing() {

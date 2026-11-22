@@ -6,8 +6,10 @@ use MediaWiki\Deferred\DeferredUpdates;
 use MediaWiki\Html\Html;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Output\OutputPage;
+use MediaWiki\Page\PageIdentity;
 use MediaWiki\Parser\ParserOutput;
 use MediaWiki\Status\Status;
+use MediaWiki\Storage\EditResult;
 use MediaWiki\Title\Title;
 use MediaWiki\User\User;
 use SMW\DIProperty;
@@ -655,6 +657,31 @@ class Hooks {
 	private const RELOAD_PENDING_CACHE_NAMESPACE = 'sdu:reload-pending';
 
 	/**
+	 * The save request has not been answered yet when onPageSaveComplete()
+	 * runs, but the store update that drives the whole self-update cycle only
+	 * runs after the answer was sent (MediaWiki defers LinksUpdate to
+	 * POSTSEND). A browser follows the redirect as soon as it has the headers,
+	 * so the page it asks for can be rendered before SDU has had a chance to
+	 * mark anything. For a page that names itself as a dependency
+	 * onPageSaveComplete() therefore sets the reload-pending marker itself,
+	 * provisionally, and onAfterDataUpdateComplete() either confirms it (by
+	 * the usual markReloadPending()) or withdraws it. Using the same marker
+	 * keeps the per-view check a single stash read. Its lifetime is short: if
+	 * the store update never comes, the editor must not wait on a decision
+	 * that is never made.
+	 */
+	private const RELOAD_PROVISIONAL_TTL_SECONDS = 20;
+
+	/**
+	 * Records that a self-update cycle really ran for a revision. The
+	 * reload-pending marker is deleted when the cycle ends, and "not pending
+	 * any more" alone cannot tell the client whether the page changed (cycle
+	 * ran, reload) or whether SDU found nothing to do (nothing to reload).
+	 */
+	private const RELOAD_CONFIRMED_CACHE_NAMESPACE = 'sdu:reload-confirmed';
+	private const RELOAD_CONFIRMED_TTL_SECONDS = 600;
+
+	/**
 	 * Marks a self-referencing page ($isSelfReferencing in
 	 * onAfterDataUpdateComplete()) as needing a client-side reload for the
 	 * given revision, the next time that revision's page is displayed.
@@ -696,6 +723,44 @@ class Hooks {
 		self::debugLog( "[SDU] markReloadPending: {$id} revId={$revId}" );
 
 		$cache->set( $key, $revId, self::RELOAD_PENDING_TTL_SECONDS );
+		$cache->set(
+			smwfCacheKey( self::RELOAD_CONFIRMED_CACHE_NAMESPACE, $id ),
+			$revId,
+			self::RELOAD_CONFIRMED_TTL_SECONDS
+		);
+	}
+
+	private static function setProvisionalReloadPending( string $id, int $revId ): void {
+		self::debugLog( "[SDU] provisional reload marker (before the store update): {$id} revId={$revId}" );
+
+		self::getSelfUpdateMarkerCache()->set(
+			smwfCacheKey( self::RELOAD_PENDING_CACHE_NAMESPACE, $id ),
+			$revId,
+			self::RELOAD_PROVISIONAL_TTL_SECONDS
+		);
+	}
+
+	/**
+	 * Withdraws the reload-pending marker if it is still only the provisional
+	 * one set by onPageSaveComplete(), i.e. if no self-update cycle was
+	 * confirmed for the revision it belongs to. A confirmed marker is left
+	 * alone: markReloadPending() recorded the confirmation, and the cycle's
+	 * own end (clearSelfUpdatePending()) removes the marker.
+	 */
+	private static function withdrawProvisionalReloadPending( string $id ): void {
+		$cache = self::getSelfUpdateMarkerCache();
+		$pendingRev = $cache->get( smwfCacheKey( self::RELOAD_PENDING_CACHE_NAMESPACE, $id ) );
+
+		if ( $pendingRev === false ) {
+			return;
+		}
+
+		$confirmedRev = $cache->get( smwfCacheKey( self::RELOAD_CONFIRMED_CACHE_NAMESPACE, $id ) );
+
+		if ( $confirmedRev !== $pendingRev ) {
+			self::debugLog( "[SDU] withdrawing provisional reload marker: {$id} revId={$pendingRev}" );
+			$cache->delete( smwfCacheKey( self::RELOAD_PENDING_CACHE_NAMESPACE, $id ) );
+		}
 	}
 
 	/**
@@ -733,6 +798,20 @@ class Hooks {
 	 */
 	public static function isSelfUpdateReloadPending( string $id, int $revId ): bool {
 		return self::getReloadPendingRevId( $id ) === $revId;
+	}
+
+	/**
+	 * @return bool whether the page shown for the given revision may differ
+	 *  from what the editor's browser got: a reload is still pending, or a
+	 *  self-update cycle ran for this revision (and has ended since). False
+	 *  once SDU decided there was nothing to update, so the client can stop
+	 *  waiting without reloading.
+	 */
+	public static function isReloadRequired( string $id, int $revId ): bool {
+		return self::isSelfUpdateReloadPending( $id, $revId )
+			|| self::getSelfUpdateMarkerCache()->get(
+				smwfCacheKey( self::RELOAD_CONFIRMED_CACHE_NAMESPACE, $id )
+			) === $revId;
 	}
 
 	/**
@@ -985,7 +1064,21 @@ class Hooks {
 		SemanticData $newData,
 		$compositePropertyTableDiffIterator
 	) {
-		self::runDependencyUpdate( $store, $newData, $compositePropertyTableDiffIterator );
+		try {
+			self::runDependencyUpdate( $store, $newData, $compositePropertyTableDiffIterator );
+		} finally {
+			// The decision the provisional marker of onPageSaveComplete()
+			// stood in for has been made now, whichever way it went: a
+			// confirmed self-update cycle has set the real marker above (see
+			// markReloadPending()), everything else means there is nothing to
+			// wait for. Doing this in finally so no path - early return,
+			// exception - can leave an editor waiting on it.
+			$title = $newData->getSubject()->getTitle();
+
+			if ( $title !== null ) {
+				self::withdrawProvisionalReloadPending( $title->getPrefixedDBKey() );
+			}
+		}
 
 		// After SDU's own handling, so the self-update-pending marker it may
 		// have just set is already visible to the check.
@@ -1440,6 +1533,103 @@ class Hooks {
 	}
 
 	/**
+	 * Sets the reload-pending marker before the save request is answered, for
+	 * a page whose new revision names itself as a dependency (the documented
+	 * "Update Self" use, usually {{FULLPAGENAME}}). See
+	 * RELOAD_PROVISIONAL_TTL_SECONDS for why this cannot wait for the store
+	 * update.
+	 *
+	 * Only the cheap, certain case is decided here: whether the new
+	 * revision's own dependency value lists the page itself. Whether a real,
+	 * non-ignored change happened - and thus whether a cycle runs at all - is
+	 * only known after the store update; onAfterDataUpdateComplete()
+	 * confirms or withdraws the marker then. A self-reference that only a
+	 * query evaluation reveals is not caught here and behaves as before.
+	 *
+	 * The SemanticData is read from the update MediaWiki has already
+	 * prepared for this very edit: no additional parse.
+	 *
+	 * @param WikiPage $wikiPage
+	 * @param mixed $user unused
+	 * @param string $summary unused
+	 * @param int $flags unused
+	 * @param \MediaWiki\Revision\RevisionRecord|null $revisionRecord null if no revision was created
+	 * @param EditResult $editResult
+	 * @return bool
+	 */
+	public static function onPageSaveComplete(
+		WikiPage $wikiPage,
+		$user,
+		string $summary,
+		int $flags,
+		$revisionRecord,
+		EditResult $editResult
+	) {
+		// A null edit creates no revision and runs no store update, so
+		// nothing would ever confirm or withdraw a marker set for it.
+		if ( $revisionRecord === null || $editResult->isNullEdit() ) {
+			return true;
+		}
+
+		try {
+			self::setProvisionalReloadPendingIfPageNamesItself( $wikiPage, $revisionRecord->getId() );
+		} catch ( \Throwable $e ) {
+			// This only brings the reload prompt forward; it is not worth a
+			// failed save. Whatever went wrong here, the later store update
+			// still handles the cycle exactly as it did before this hook
+			// existed.
+			self::debugLog( "[SDU] onPageSaveComplete skipped: " . get_class( $e ) . ': ' . $e->getMessage() );
+		}
+
+		return true;
+	}
+
+	private static function setProvisionalReloadPendingIfPageNamesItself( WikiPage $wikiPage, int $revId ): void {
+		global $wgSDUProperty;
+
+		$title = $wikiPage->getTitle();
+
+		$semanticData = $wikiPage->getCurrentUpdate()->getCanonicalParserOutput()->getExtensionData( 'smwdata' );
+
+		if ( !$semanticData instanceof SemanticData ) {
+			return;
+		}
+
+		$property = DIProperty::newFromUserLabel( str_replace( '_', ' ', $wgSDUProperty ) );
+
+		foreach ( $semanticData->getPropertyValues( $property ) as $value ) {
+			if ( $value instanceof SMWDIBlob && self::dependencyValueNamesPage( $value->getSerialization(), $title ) ) {
+				self::setProvisionalReloadPending( $title->getPrefixedDBKey(), $revId );
+				return;
+			}
+		}
+	}
+
+	/**
+	 * @param string $value a raw dependency value; an SMW query condition
+	 * @param PageIdentity $page
+	 * @return bool whether the value lists exactly this page, alone or as one
+	 *  alternative of an "OR" / "||" union
+	 */
+	private static function dependencyValueNamesPage( string $value, PageIdentity $page ): bool {
+		foreach ( preg_split( '/\s+OR\s+|\s*\|\|\s*/', $value ) as $alternative ) {
+			$alternative = trim( $alternative );
+
+			if ( strncmp( $alternative, '[[', 2 ) === 0 && substr( $alternative, -2 ) === ']]' ) {
+				$alternative = substr( $alternative, 2, -2 );
+			}
+
+			$candidate = Title::newFromText( $alternative );
+
+			if ( $candidate !== null && $candidate->equals( $page ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Renders a client-side reload prompt for a self-referencing page whose
 	 * real, non-ignored change would otherwise be masked by its own forced
 	 * self-UpdateJob before SMW's own PostProcHandler ever gets to show one -
@@ -1460,7 +1650,10 @@ class Hooks {
 	 * reload until the cookie expired. A genuine cycle always has the marker
 	 * set at save time (see markReloadPending()), before the editor's browser
 	 * requests the page, so the cookie adds nothing the marker does not
-	 * already cover. Once clearSelfUpdatePending() has cleared the marker
+	 * already cover. (For a page that names itself as a dependency that
+	 * holds even though the store update runs only after the save request was
+	 * answered: onPageSaveComplete() sets the marker provisionally before
+	 * that.) Once clearSelfUpdatePending() has cleared the marker
 	 * (the cycle resolved or hit its attempt limit), rendering stops - there
 	 * is no separate "cycle ended" state to check here.
 	 *

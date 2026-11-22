@@ -209,8 +209,9 @@
 		 *
 		 * @param {string} title
 		 * @param {string} revisionId
-		 * @return {jQuery.Promise} resolves with a boolean (true = still
-		 *  pending); rejects on a request failure (network error, API
+		 * @return {jQuery.Promise} resolves with the status object
+		 *  `{ pending: boolean, reload: boolean }` (pending = a reload is still
+		 *  pending; reload = the page may have changed, see poll()); rejects on a request failure (network error, API
 		 *  error response, etc.) - see run()'s own handling of that
 		 *  rejection for why a failure here is NOT treated as "assume
 		 *  still pending" or "fall back to a fixed delay".
@@ -228,7 +229,7 @@
 				// - MediaWiki's ParamValidator coerces it server-side.
 				revid: revisionId
 			} ).then( function ( result ) {
-				return result.sduselfupdatestatus.pending;
+				return result.sduselfupdatestatus;
 			} );
 		},
 
@@ -274,8 +275,8 @@
 				return;
 			}
 
-			reload.checkPending( title, revisionId ).then( function ( pending ) {
-				if ( pending ) {
+			reload.checkPending( title, revisionId ).then( function ( status ) {
+				if ( status.pending ) {
 					var nextAttempts = attempts + 1;
 
 					reload.setRetryState( title, {
@@ -298,6 +299,17 @@
 				}
 
 				reload.clearRetryState( title );
+
+				// The prompt can appear before the server has decided whether
+				// the save causes a self-update cycle at all. If it decided
+				// that there is nothing to update, the page the editor is
+				// looking at is already final - stop waiting, do not reload.
+				// A response without the field (an older server) means
+				// "reload", as it always did.
+				if ( status.reload === false ) {
+					reload.closeOverlay( dialog );
+					return;
+				}
 
 				new mw.Api().post( { action: 'purge', titles: title } ).then(
 					function () {

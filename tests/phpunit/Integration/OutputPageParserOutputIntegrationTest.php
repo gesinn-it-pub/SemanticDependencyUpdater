@@ -6,6 +6,7 @@ use MediaWiki\Context\RequestContext;
 use MediaWiki\Output\OutputPage;
 use MediaWiki\Parser\ParserOutput;
 use MediaWiki\Request\FauxRequest;
+use MediaWiki\Storage\EditResult;
 use MediaWiki\Title\Title;
 use SDU\Hooks;
 use Wikimedia\Rdbms\IDBAccessObject;
@@ -111,6 +112,206 @@ class OutputPageParserOutputIntegrationTest extends SduIntegrationTestCase {
 			'too large is lowered to the maximum' => [ 600000, 10000 ],
 			'garbage falls back to the default' => [ 'abc', 250 ],
 		];
+	}
+
+	/**
+	 * Edits a page and records what a browser that follows the redirect right
+	 * away would get: MediaWiki runs PageSaveComplete before the response is
+	 * sent, while the store update (and with it SDU's cycle) only runs
+	 * afterwards. The state seen from this hook is therefore the state the
+	 * redirect GET can already rely on.
+	 *
+	 * @return array{pending: bool, html: string}
+	 */
+	private function editAndObserveBeforeTheStoreUpdate( Title $title, string $wikitext ): array {
+		$seen = null;
+
+		$this->setTemporaryHook(
+			'PageSaveComplete',
+			function ( $wikiPage, $user, $summary, $flags, $revisionRecord ) use ( $title, &$seen ) {
+				if ( !$wikiPage->getTitle()->equals( $title ) ) {
+					return;
+				}
+
+				$fresh = Title::newFromText( $title->getPrefixedText() );
+
+				$seen = [
+					'pending' => Hooks::isSelfUpdateReloadPending(
+						$title->getPrefixedDBKey(),
+						$revisionRecord->getId()
+					),
+					'html' => $this->renderFor( $fresh )->getHTML(),
+				];
+			},
+			false
+		);
+
+		$this->editPage( $title, $wikitext );
+
+		$this->assertNotNull( $seen, 'PageSaveComplete must have fired for the edited page.' );
+
+		return $seen;
+	}
+
+	/**
+	 * A browser follows the redirect of a save before SDU's post-send cycle
+	 * has run. A page that names itself as a dependency must already show the
+	 * reload prompt then, or the editor sees stale values without any hint
+	 * that they are about to change.
+	 *
+	 * @covers \SDU\Hooks
+	 */
+	public function testSelfReferencingSaveIsPendingBeforeTheStoreUpdateRuns() {
+		$title = Title::newFromText( 'SDUOutputPagePreSendSelfPage', NS_MAIN );
+
+		$seen = $this->editAndObserveBeforeTheStoreUpdate(
+			$title,
+			'{{#set:SDUTestSource=SourceValue}}'
+			. '{{#set:SDUTestDerived={{#show:{{FULLPAGENAME}}|?SDUTestSource}}}}'
+			. '{{#set:Semantic Dependency={{FULLPAGENAME}}}}'
+		);
+
+		$this->assertTrue(
+			$seen['pending'],
+			'The reload must already be pending when the save request is about to be answered.'
+		);
+		$this->assertStringContainsString( 'sdu-reload-pending', $seen['html'] );
+	}
+
+	/**
+	 * @covers \SDU\Hooks
+	 */
+	public function testPageThatOnlyNamesOtherPagesIsNotPendingBeforeTheStoreUpdateRuns() {
+		$title = Title::newFromText( 'SDUOutputPagePreSendRemotePage', NS_MAIN );
+
+		$seen = $this->editAndObserveBeforeTheStoreUpdate(
+			$title,
+			'{{#set:SDUTestSource=SourceValue}}{{#set:Semantic Dependency=SDUSomeOtherPage}}'
+		);
+
+		$this->assertFalse( $seen['pending'], 'A page that does not name itself has nothing to wait for.' );
+		$this->assertStringNotContainsString( 'sdu-reload-pending', $seen['html'] );
+	}
+
+	/**
+	 * @covers \SDU\Hooks
+	 */
+	public function testPageWithoutTheDependencyPropertyIsNotPendingBeforeTheStoreUpdateRuns() {
+		$title = Title::newFromText( 'SDUOutputPagePreSendPlainPage', NS_MAIN );
+
+		$seen = $this->editAndObserveBeforeTheStoreUpdate( $title, '{{#set:SDUTestSource=SourceValue}}' );
+
+		$this->assertFalse( $seen['pending'] );
+		$this->assertStringNotContainsString( 'sdu-reload-pending', $seen['html'] );
+	}
+
+	/**
+	 * Which dependency values count as "names this page itself" for the
+	 * marker set before the response: the page alone, in any spelling
+	 * MediaWiki treats as the same title, or as one alternative of a union -
+	 * but not another page whose name merely starts the same way.
+	 *
+	 * @dataProvider provideDependencyValues
+	 * @covers \SDU\Hooks
+	 */
+	public function testOnlyAValueNamingThePageItselfIsPendingBeforeTheStoreUpdateRuns(
+		string $value,
+		bool $expectedPending
+	) {
+		$title = Title::newFromText( 'SDU PreSend Value Page ' . md5( $value ), NS_MAIN );
+
+		$seen = $this->editAndObserveBeforeTheStoreUpdate(
+			$title,
+			'{{#set:SDUTestSource=x}}{{#set:Semantic Dependency='
+			. str_replace(
+				[ '%s', '%u' ],
+				[ $title->getText(), $title->getDBkey() ],
+				$value
+			) . '}}'
+		);
+
+		$this->assertSame( $expectedPending, $seen['pending'] );
+	}
+
+	public static function provideDependencyValues(): array {
+		return [
+			'the page itself' => [ '%s', true ],
+			'underscores instead of spaces' => [ '%u', true ],
+			'as one alternative of a union' => [ 'SDUSomeOtherPage OR %s', true ],
+			'as the last alternative of a union' => [ '%s OR SDUSomeOtherPage', true ],
+			'only another page' => [ 'SDUSomeOtherPage', false ],
+			'another page whose name starts the same way' => [ '%s Extra', false ],
+		];
+	}
+
+	/**
+	 * Without a declared type the dependency value is not a text value, SDU
+	 * itself ignores it - and the save must neither break nor wait on it.
+	 *
+	 * @covers \SDU\Hooks
+	 */
+	public function testPropertyWithoutADeclaredTypeIsNotPendingAndDoesNotBreakTheSave() {
+		$this->overrideConfigValue( 'SDUProperty', 'SDU Undeclared Dependency' );
+
+		$title = Title::newFromText( 'SDUOutputPageUndeclaredPropertyPage', NS_MAIN );
+
+		$seen = $this->editAndObserveBeforeTheStoreUpdate(
+			$title,
+			'{{#set:SDU Undeclared Dependency={{FULLPAGENAME}}}}'
+		);
+
+		$this->assertFalse( $seen['pending'] );
+		$this->assertTrue( $title->exists() );
+	}
+
+	/**
+	 * A failure of this optimization must never cost anybody a save: without
+	 * an update in progress (here: called outside any edit) the hook has
+	 * nothing to look at and has to leave quietly.
+	 *
+	 * @covers \SDU\Hooks
+	 */
+	public function testPageSaveCompleteHookLeavesQuietlyWithoutAnUpdateInProgress() {
+		$title = Title::newFromText( 'SDUOutputPageNoUpdatePage', NS_MAIN );
+		$this->editPage( $title, '{{#set:SDUTestSource=x}}{{#set:Semantic Dependency={{FULLPAGENAME}}}}' );
+		// Let the edit's own cycle end, so a marker found afterwards can
+		// only come from the call below.
+		$this->runAllJobsWithFreshCaches();
+
+		$wikiPage = $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( $title );
+
+		$this->assertTrue( Hooks::onPageSaveComplete(
+			$wikiPage,
+			$this->getTestUser()->getUser(),
+			'',
+			0,
+			$wikiPage->getRevisionRecord(),
+			new EditResult( false, null, null, null, null, false, false, [] )
+		) );
+		$this->assertFalse( Hooks::isSelfUpdateReloadPending(
+			$title->getPrefixedDBKey(),
+			$wikiPage->getLatest()
+		) );
+	}
+
+	/**
+	 * A re-save that changes nothing creates no revision and runs no store
+	 * update, so nothing could ever withdraw a marker set for it.
+	 *
+	 * @covers \SDU\Hooks
+	 */
+	public function testNullEditDoesNotLeaveAMarkerBehind() {
+		$title = Title::newFromText( 'SDUOutputPageNullEditPage', NS_MAIN );
+		$wikitext = '{{#set:SDUTestSource=x}}{{#set:Semantic Dependency={{FULLPAGENAME}}}}';
+
+		$this->editPage( $title, $wikitext );
+		$this->runAllJobsWithFreshCaches();
+
+		$this->editPage( $title, $wikitext );
+
+		$this->assertFalse(
+			Hooks::isSelfUpdateReloadPending( $title->getPrefixedDBKey(), $title->getLatestRevID() )
+		);
 	}
 
 	/**

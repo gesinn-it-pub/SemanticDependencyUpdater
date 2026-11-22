@@ -46,6 +46,16 @@ class ApiSduSelfUpdateStatus extends ApiBase {
 			$params['revid']
 		);
 
+		// Whether the page may have changed since the editor's browser got
+		// it. The prompt can be shown before SDU has decided whether the
+		// save causes a self-update cycle at all; once it has decided that
+		// there is nothing to update, the client must stop waiting WITHOUT
+		// reloading.
+		$reload = Hooks::isReloadRequired(
+			$title->getPrefixedDBKey(),
+			$params['revid']
+		);
+
 		// Without this, ApiResult's pre-1.25 BC transformation (still applied
 		// by default) strips a `false` boolean value entirely and renders
 		// `true` as an empty string - "pending" would silently vanish from
@@ -56,7 +66,8 @@ class ApiSduSelfUpdateStatus extends ApiBase {
 			$this->getModuleName(),
 			[
 				'pending' => $pending,
-				ApiResult::META_BC_BOOLS => [ 'pending' ],
+				'reload' => $reload,
+				ApiResult::META_BC_BOOLS => [ 'pending', 'reload' ],
 			]
 		);
 	}
