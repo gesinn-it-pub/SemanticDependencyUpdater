@@ -75,10 +75,11 @@ abstract class SduIntegrationTestCase extends MediaWikiIntegrationTestCase {
 		// does before every test for exactly this reason.
 		$this->resetSmwCaches();
 
-		global $wgSDUProperty, $wgSDUTraversed, $wgSDUIgnoredProperties;
+		global $wgSDUProperty, $wgSDUTraversed, $wgSDUTraversedAt, $wgSDUIgnoredProperties;
 
 		$wgSDUProperty = 'Semantic Dependency';
 		$wgSDUTraversed = null;
+		$wgSDUTraversedAt = null;
 		$wgSDUIgnoredProperties = [];
 
 		Hooks::setup();

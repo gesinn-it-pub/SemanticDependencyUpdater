@@ -20,6 +20,7 @@ use SMW\Services\ServicesFactory as ApplicationFactory;
 use SMW\Store;
 use SMWDIBlob;
 use SMWQueryProcessor;
+use Wikimedia\Timestamp\ConvertibleTimestamp;
 use WikiPage;
 
 class Hooks {
@@ -1087,6 +1088,48 @@ class Hooks {
 		return true;
 	}
 
+	/** Genuine passes of one page that one process may propagate within TRAVERSAL_WINDOW_SECONDS. */
+	private const TRAVERSAL_LIMIT = 2;
+
+	/**
+	 * How long a page's count in $wgSDUTraversed stays valid. The counter
+	 * guards against pages that keep re-triggering each other, which shows
+	 * as many genuine passes in quick succession. A process that works off
+	 * jobs for hours (runJobs.php --wait) must not keep an old count on a
+	 * page for its whole lifetime: it would stop propagating that page for
+	 * good once the page had had its third genuine change.
+	 */
+	private const TRAVERSAL_WINDOW_SECONDS = 60;
+
+	/**
+	 * Counts one genuine pass of the page in this process.
+	 *
+	 * @return bool whether the page has used up its passes for the current window
+	 */
+	private static function isTraversalLimitReached( string $id ): bool {
+		global $wgSDUTraversed, $wgSDUTraversedAt;
+
+		// Like $wgSDUTraversed, a process-local value that is no declared config.
+		// @phan-suppress-next-line MediaWikiNoIssetIfDefined
+		if ( !isset( $wgSDUTraversedAt ) ) {
+			$wgSDUTraversedAt = [];
+		}
+
+		$now = ConvertibleTimestamp::time();
+
+		if (
+			isset( $wgSDUTraversedAt[$id] ) &&
+			$now - $wgSDUTraversedAt[$id] > self::TRAVERSAL_WINDOW_SECONDS
+		) {
+			unset( $wgSDUTraversed[$id], $wgSDUTraversedAt[$id] );
+		}
+
+		$wgSDUTraversed[$id] = ( $wgSDUTraversed[$id] ?? 0 ) + 1;
+		$wgSDUTraversedAt[$id] ??= $now;
+
+		return $wgSDUTraversed[$id] > self::TRAVERSAL_LIMIT;
+	}
+
 	private static function runDependencyUpdate(
 		Store $store,
 		SemanticData $newData,
@@ -1257,13 +1300,16 @@ class Hooks {
 			return true;
 		}
 
-		if ( array_key_exists( $id, $wgSDUTraversed ) ) {
-			$wgSDUTraversed[$id] += 1;
-		} else {
-			$wgSDUTraversed[$id] = 1;
-		}
-
-		if ( $wgSDUTraversed[$id] > 2 ) {
+		// A page inside its own self-update cycle is bounded by that cycle's
+		// durable attempt limit (SELF_UPDATE_MAX_ATTEMPTS, enforced below and
+		// kept in the cache, so it holds across processes). The process
+		// counter must not cut such a cycle short: a cycle whose derived
+		// values settle over several genuine passes would be left hanging
+		// when one process works off all its jobs, and the remote targets
+		// held back for it would never be released. Only the pass that
+		// starts a cycle is counted, so a page whose cycles keep
+		// re-triggering each other is still stopped.
+		if ( self::getSelfUpdateAttempt( $id ) === 0 && self::isTraversalLimitReached( $id ) ) {
 			self::debugLog( "[SDU] <-- Already traversed" );
 			return true;
 		}

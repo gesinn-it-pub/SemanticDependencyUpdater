@@ -17,10 +17,11 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 	protected function setUp(): void {
 		parent::setUp();
 
-		global $wgSDUProperty, $wgSDUTraversed, $wgSDUIgnoredProperties;
+		global $wgSDUProperty, $wgSDUTraversed, $wgSDUTraversedAt, $wgSDUIgnoredProperties;
 
 		$wgSDUProperty = 'Depends On';
 		$wgSDUTraversed = null;
+		$wgSDUTraversedAt = null;
 		$wgSDUIgnoredProperties = [];
 
 		Hooks::setup();

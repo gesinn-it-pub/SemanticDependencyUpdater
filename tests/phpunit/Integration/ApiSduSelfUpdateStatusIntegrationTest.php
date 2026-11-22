@@ -131,6 +131,14 @@ class ApiSduSelfUpdateStatusIntegrationTest extends SduIntegrationTestCase {
 	 * @covers \SDU\Api\ApiSduSelfUpdateStatus
 	 */
 	public function testReportsNoReloadForASaveThatLeftTheSemanticDataAlone() {
+		global $wgSDUIgnoredProperties;
+
+		// The default of a real wiki: SESP's revision ID changes on every
+		// single edit and must not count as a change of the semantic data.
+		// SduIntegrationTestCase empties the list, which would turn every
+		// prose edit into a genuine change here.
+		$wgSDUIgnoredProperties = [ '___REVID' ];
+
 		$title = Title::newFromText( 'SDUApiStatusNoReloadTestPage', NS_MAIN );
 		$semantic = '{{#set:SDUTestSource=SourceValue}}'
 			. '{{#set:SDUTestDerived={{#show:{{FULLPAGENAME}}|?SDUTestSource}}}}'

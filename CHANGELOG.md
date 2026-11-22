@@ -19,6 +19,11 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
   second, so the page reloads sooner once the server is done
 
 ### Fixed
+- Let an "Update Self" cycle run to its end when one process works off all its jobs (`runJobs.php`
+  without limits or with `--wait`). Until now a cycle needing more than two genuine passes was cut
+  short there: it never ended and the dependency targets held back for it were never updated
+- Stop a long-running job runner from refusing to propagate a page for good after that page had its
+  third genuine change; the loop guard now only counts passes within one minute
 - Show the reload prompt after saving a page that names itself as a dependency even when the
   browser asks for the page before SDU has run (typical for heavier pages, e.g. saved through a
   form). Until now the prompt was missing in that case and the editor kept seeing the old values
