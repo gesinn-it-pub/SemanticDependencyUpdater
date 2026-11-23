@@ -1666,12 +1666,9 @@ class Hooks {
 	 * @return DIWikiPage[]
 	 */
 	private static function updatePagesMatchingQuery( $value, bool $encoded = false, ?Title $self = null ) {
-		global $wgPageFormsListSeparator;
-
 		// $wgPageFormsListSeparator is declared by the optional PageForms extension, not SDU,
 		// so it is genuinely unset when PageForms is not installed.
-		// @phan-suppress-next-line MediaWikiNoIssetIfDefined
-		$separator = isset( $wgPageFormsListSeparator ) ? $wgPageFormsListSeparator : null;
+		$separator = $GLOBALS['wgPageFormsListSeparator'] ?? null;
 
 		// A value that as a whole names one page is never split: the page's
 		// name may itself contain the separator or an operator word. This
@@ -1881,11 +1878,8 @@ class Hooks {
 	 *  alternative of an "OR" / "||" union
 	 */
 	private static function dependencyValueNamesPage( string $value, PageIdentity $page ): bool {
-		global $wgPageFormsListSeparator;
-
 		// $wgPageFormsListSeparator is declared by the optional PageForms extension, not SDU.
-		// @phan-suppress-next-line MediaWikiNoIssetIfDefined
-		$separator = isset( $wgPageFormsListSeparator ) ? $wgPageFormsListSeparator : null;
+		$separator = $GLOBALS['wgPageFormsListSeparator'] ?? null;
 
 		// the value comes from the parse-time data of a save, so it still
 		// holds character references
