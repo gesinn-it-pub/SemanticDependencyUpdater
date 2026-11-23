@@ -23,6 +23,8 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
   second, so the page reloads sooner once the server is done
 
 ### Documentation
+- Recommend `$wgSDUSettlePasses = 1` for Semantic MediaWiki 7.4.0 or newer with a single database, with the
+  measurements behind it, and keep 2 for a replicated database or an older Semantic MediaWiki
 - Describe `$wgSDUSettlePasses = 1` as a trade-off instead of a safe choice for a single database: in one
   measured setup it ended a cycle too early in about 5 % of the saves
 

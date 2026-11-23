@@ -64,6 +64,16 @@ Run-to-run noise: counts are exactly reproducible; timings vary by 1-3 %
   several users at the same time, and a replicated database. The rule tells
   which pass counts; it cannot tell whether that pass already sees the final
   state (for example with a lagging replica), which is why the default stays 2.
+
+  **When to set it to 1.** With Semantic MediaWiki 7.4.0 or newer and a single
+  database (no replica), 1 is a measured choice: in the setup above it saved
+  about 0.7 to 0.9 s per cycle (2.1 to 2.3 s instead of 2.95 s until the page
+  reloads). Keep 2 if the database is replicated, because a lagging replica can
+  make the cycle's own pass miss the final state, which the rule cannot detect
+  (not measured), and below Semantic MediaWiki 7.4.0, where the rule is not
+  active. If the debug log group `SemanticDependencyUpdater` is on, the line
+  `Not a pass of this cycle's own job` shows the rule discarding a store update
+  that would otherwise have ended a cycle.
 - **Status poll interval** (`$wgSDUReloadPollIntervalMs`, default 250 ms, kept
   between 100 and 10000): the browser asks `action=sduselfupdatestatus` this
   often. A request costs about 22 ms; at 4 requests per second for the roughly
