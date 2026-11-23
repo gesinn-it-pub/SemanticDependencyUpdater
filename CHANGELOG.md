@@ -12,7 +12,7 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 - Keep a "Property::Value1;Value2" list working with the list separator, also with these characters in the names
 
 ### Known limitations
-- A page that does not exist yet and is not the page being saved is read as a list of values when its name contains ` OR ` or ` AND ` as a separate word (also a raw `;`, as typed or read from the store). A dependency naming it does not update that page: with ` OR ` it updates the pages named by its parts, with ` AND ` the result is whatever the conjunction query returns. Avoid ` OR `, ` AND ` and `;` in page names. See "Page names with special characters" in the README
+- A page that does not exist yet and is not the page being saved is read as a list of values when its name contains ` OR ` or ` AND ` as a separate word (also a raw `;`, as typed or read from the store). A dependency naming it does not update that page: with ` OR ` it updates the pages named by its parts, with ` AND ` the result is whatever the conjunction query returns. Avoid ` OR `, ` AND ` and `;` in page names. In a property condition (`Property::A OR B`) ` OR ` / ` AND ` is always an operator, also for an existing page. See "Page names with special characters" in the README
 
 ## [5.2.0] - 2026-11-23
 
