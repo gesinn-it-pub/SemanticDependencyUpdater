@@ -6,49 +6,41 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 
 ## [Unreleased]
 
+## [5.2.0] - 2026-11-23
+
+Makes the reload after saving a self-referencing ("Update Self") page reliable on larger pages and with job runners that work off many jobs per process, and makes it faster and tunable.
+
 ### Added
-- `$wgSDUSettlePasses` (default 2): number of consecutive empty re-parses that end
-  an "Update Self" cycle; 1 saves one re-parse per cycle but can end a cycle too early
-- `$wgSDUReloadPollIntervalMs` (default 250, between 100 and 10000): how often the
-  browser asks whether an "Update Self" cycle is done
-- `reload` field in the `sduselfupdatestatus` API response: whether the page may have changed
+- Add `$wgSDUSettlePasses` (default 2): how many empty re-parses end an "Update Self" cycle. 1 saves one re-parse per cycle (about 0.7 to 0.9 s in a measured setup) and is recommended with Semantic MediaWiki 7.4.0 or newer and a single database
+  [`5cc0a73`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/5cc0a73)
+- Add `$wgSDUReloadPollIntervalMs` (default 250, between 100 and 10000): how often the browser asks whether an "Update Self" cycle is done
+  [`5cc0a73`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/5cc0a73)
+- Add a `reload` field to the `sduselfupdatestatus` API response: whether the page may have changed
+  [`8d4ed96`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/8d4ed96)
 
 ### Changed
-- During a running "Update Self" cycle only the pass of a job that cycle queued counts as evidence that
-  the cycle has settled (Semantic MediaWiki 7.4.0 or newer). Other store updates of the page - the refresh
-  SMW runs after a purge, an update from another request, a job of an earlier cycle - can be empty
-  without saying anything about the state the cycle waits for; they no longer end the cycle or use up an
-  attempt
-- Check the status of a pending "Update Self" reload every 250 ms instead of every
-  second, so the page reloads sooner once the server is done
-
-### Documentation
-- Recommend `$wgSDUSettlePasses = 1` for Semantic MediaWiki 7.4.0 or newer with a single database, with the
-  measurements behind it, and keep 2 for a replicated database or an older Semantic MediaWiki
-- Describe `$wgSDUSettlePasses = 1` as a trade-off instead of a safe choice for a single database: in one
-  measured setup it ended a cycle too early in about 5 % of the saves
+- Check every 250 ms instead of every second whether an "Update Self" cycle is done, so the page reloads sooner
+  [`5cc0a73`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/5cc0a73)
+- Count only the pass of a job that the cycle queued itself as evidence that it has settled (Semantic MediaWiki 7.4.0 or newer). Other store updates of the page, such as the refresh after a purge, no longer end a cycle too early
+  [`e6d924a`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/e6d924a)
 
 ### Fixed
-- Give every save of a page the full attempt budget of a running "Update Self" cycle. Two saves in quick
-  succession used to share one budget, and the cycle was ended by the limit on a pass that still changed
-  data, before a pass had confirmed the result; the reload prompt was then missing for a moment
-- Keep the reload prompt of a save until that save's own update has decided whether a reload is needed. A
-  store update of the same page in another process (for example a job of an earlier cycle finishing just
-  then) could take the prompt away, so the editor was told there was nothing to wait for while the page
-  still showed the old values
-- End or continue a running "Update Self" cycle when a pass changes nothing but ignored properties
-  (usually the revision ID after two quick saves in a row) or when the page loses its dependency
-  property. Until now the cycle stayed pending with an empty job queue, the reload prompt waited
-  for a reload that never came, and the targets held back for it were released only by chance
-- Let an "Update Self" cycle run to its end when one process works off all its jobs (`runJobs.php`
-  without limits or with `--wait`). Until now a cycle needing more than two genuine passes was cut
-  short there: it never ended and the dependency targets held back for it were never updated
-- Stop a long-running job runner from refusing to propagate a page for good after that page had its
-  third genuine change; the loop guard now only counts passes within one minute
-- Show the reload prompt after saving a page that names itself as a dependency even when the
-  browser asks for the page before SDU has run (typical for heavier pages, e.g. saved through a
-  form). Until now the prompt was missing in that case and the editor kept seeing the old values
+- Show the reload prompt after saving a self-referencing page even when the browser asks for the page before SDU has run, typical for larger pages. Until now the prompt was missing and the editor kept seeing the old values
+  [`8d4ed96`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/8d4ed96)
 - Do not reload the page when SDU found nothing to update after the prompt was shown
+  [`8d4ed96`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/8d4ed96)
+- Keep the reload prompt of a save until that save's own update has decided whether a reload is needed, so an update of the same page in another process can no longer take it away
+  [`d53eeda`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/d53eeda)
+- Let an "Update Self" cycle run to its end when one process works off many jobs (`runJobs.php` without limits or with `--wait`). Until now such a cycle was cut short, never ended, and the targets held back for it were never updated. A long-running job runner also no longer stops propagating a page for good after its third change
+  [`f7accbf`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/f7accbf)
+- End or continue a running "Update Self" cycle when a pass changes only ignored properties or the page loses its dependency property, instead of leaving it pending with an empty job queue
+  [`a3e946c`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/a3e946c)
+- Give every save the full attempt budget of a running "Update Self" cycle, so two saves in quick succession no longer end it before a pass has confirmed the result
+  [`38c6239`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/38c6239)
+
+### Documentation
+- Describe `$wgSDUSettlePasses = 1` as a trade-off with the measurements behind it and recommend it for Semantic MediaWiki 7.4.0 or newer with a single database; keep 2 for a replicated database or an older Semantic MediaWiki
+  [`6f02329`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/6f02329), [`9a51970`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/9a51970), [`f99890a`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/f99890a)
 
 ## [5.1.2] - 2026-11-05
 
@@ -159,7 +151,8 @@ deletion-triggered dependency rebuilds, which were never actually wired up.
 - Replace PHPStan/Psalm with Phan for static analysis
   [`c4868d1`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/c4868d1)
 
-[Unreleased]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.2...HEAD
+[Unreleased]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.2.0...HEAD
+[5.2.0]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.2...5.2.0
 [5.1.2]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.1...5.1.2
 [5.1.1]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.0...5.1.1
 [5.1.0]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.0.2...5.1.0
