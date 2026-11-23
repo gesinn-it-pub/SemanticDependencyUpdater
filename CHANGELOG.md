@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 
 ## [Unreleased]
 
+### Fixed
+- Find pages whose name contains `&`, `'`, `"`, `=` or `;` when they are named in the dependency property, for example through `{{FULLPAGENAME}}`. The character references that `{{FULLPAGENAME}}` writes for these characters (such as `&#38;`) were cut at their own `;` or not decoded, so the query matched no page and no "Update Self" cycle ran
+- Do not split page names that contain `AND` or `OR` as part of a word (such as `ORDER`, `BRAND`) or as a separate word when the page exists, into query operators
+- Keep a "Property::Value1;Value2" list working with the list separator, also with these characters in the names
+
+### Known limitations
+- A page that does not exist yet and is not the page being saved is read as a list of values when its name contains ` OR ` or ` AND ` as a separate word (also a raw `;`, as typed or read from the store). A dependency naming it does not update that page: with ` OR ` it updates the pages named by its parts, with ` AND ` the result is whatever the conjunction query returns. Avoid ` OR `, ` AND ` and `;` in page names. See "Page names with special characters" in the README
+
 ## [5.2.0] - 2026-11-23
 
 Makes the reload after saving a self-referencing ("Update Self") page reliable on larger pages and with job runners that work off many jobs per process, and makes it faster and tunable.
