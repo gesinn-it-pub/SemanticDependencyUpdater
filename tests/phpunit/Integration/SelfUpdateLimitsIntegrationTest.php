@@ -5,8 +5,10 @@ namespace SDU\Tests\Integration;
 use MediaWiki\Title\Title;
 use ReflectionMethod;
 use SDU\Hooks;
+use SMW\DIProperty;
 use SMW\DIWikiPage;
 use SMW\SemanticData;
+use SMW\SQLStore\ChangeOp\ChangeOp;
 
 /**
  * The bounds of the "Update Self" cycle: how many attempts a page gets, what
@@ -53,9 +55,10 @@ class SelfUpdateLimitsIntegrationTest extends SduIntegrationTestCase {
 	}
 
 	/**
-	 * A genuine (non-empty) change on a self-referencing page that has
-	 * already used up its attempts must neither re-queue the page itself nor
-	 * drop its other dependency targets.
+	 * A genuine (non-empty) change found by a PASS - a job re-parsing the page,
+	 * not a save, which would restart the budget - on a self-referencing page
+	 * that has already used up its attempts must neither re-queue the page
+	 * itself nor drop its other dependency targets.
 	 *
 	 * @covers \SDU\Hooks
 	 */
@@ -64,16 +67,20 @@ class SelfUpdateLimitsIntegrationTest extends SduIntegrationTestCase {
 		$remoteTitle = Title::newFromText( 'SDULimitRealDiffRemotePage', NS_MAIN );
 
 		$this->editPage( $remoteTitle, 'Remote content.' );
-		$this->runAllJobsWithFreshCaches();
-
-		$this->advanceSelfUpdateMarker( $selfTitle, self::MAX_ATTEMPTS );
-		$this->assertSelfUpdatePendingAttempt( self::MAX_ATTEMPTS, $selfTitle );
-
 		$this->editPage(
 			$selfTitle,
 			'{{#set:SDUTestSource=LimitValue}}'
 			. '{{#set:Semantic Dependency={{FULLPAGENAME}} OR SDULimitRealDiffRemotePage}}'
 		);
+
+		// Let the cycle of the save end, so that nothing is left in the queue.
+		$this->runAllJobsWithFreshCaches();
+		$this->assertSelfUpdatePendingAttempt( 0, $selfTitle );
+
+		$this->advanceSelfUpdateMarker( $selfTitle, self::MAX_ATTEMPTS );
+		$this->assertSelfUpdatePendingAttempt( self::MAX_ATTEMPTS, $selfTitle );
+
+		$this->deliverRealChangePass( $selfTitle );
 
 		$this->assertSelfUpdatePendingAttempt(
 			0,
@@ -93,6 +100,27 @@ class SelfUpdateLimitsIntegrationTest extends SduIntegrationTestCase {
 			$queued,
 			'Dropping the attempt-limited self-reference must not drop the other dependency targets.'
 		);
+	}
+
+	/**
+	 * A store update of the page as SDU's hook sees it, with a real change of
+	 * the page's derived value (what a job pass finds when the cycle is not
+	 * done yet).
+	 */
+	private function deliverRealChangePass( Title $title ): void {
+		$subject = DIWikiPage::newFromTitle( $title );
+		$data = clone smwfGetStore()->getSemanticData( $subject );
+		$propertyId = smwfGetStore()->getObjectIds()->getSMWPropertyID(
+			DIProperty::newFromUserLabel( 'SDUTestDerived' )
+		);
+
+		$diff = $this->createMock( ChangeOp::class );
+		$diff->method( 'getOrderedDiffByTable' )->willReturn(
+			[ 'smw_di_blob' => [ 'insert' => [ [ 's_id' => $subject->getId(), 'p_id' => $propertyId ] ] ] ]
+		);
+		$diff->method( 'getSubject' )->willReturn( $subject );
+
+		Hooks::onAfterDataUpdateComplete( smwfGetStore(), $data, $diff );
 	}
 
 	/**
@@ -271,6 +299,73 @@ class SelfUpdateLimitsIntegrationTest extends SduIntegrationTestCase {
 		$this->assertFalse(
 			Hooks::isSelfUpdateReloadPending( $title->getPrefixedDBKey(), $title->getLatestRevID() )
 		);
+	}
+
+	/**
+	 * The attempt budget of a cycle bounds what a page's own passes may cost.
+	 * A new save is a new event of its own - a user or a bot did it, not the
+	 * cycle - so it must not inherit what the previous save's passes used up:
+	 * two saves in quick succession used to exhaust the budget between them,
+	 * and the cycle was ended by the limit while the data was still changing.
+	 *
+	 * @covers \SDU\Hooks
+	 */
+	public function testANewSaveRestartsTheAttemptBudgetOfARunningCycle() {
+		$title = Title::newFromText( 'SDULimitSaveRestartsBudgetPage', NS_MAIN );
+
+		$this->editPage( $title, '{{#set:SDUTestSource=One}}{{#set:Semantic Dependency={{FULLPAGENAME}}}}' );
+		$this->advanceSelfUpdateMarker( $title, 2 );
+		$this->assertSelfUpdatePendingAttempt( 3, $title );
+
+		$this->editPage( $title, '{{#set:SDUTestSource=Two}}{{#set:Semantic Dependency={{FULLPAGENAME}}}}' );
+
+		// The save restarts the count at 1; its own real pass is the second attempt.
+		$this->assertSelfUpdatePendingAttempt(
+			2,
+			$title,
+			'A new save must get the budget of a fresh cycle, not what the previous save used up.'
+		);
+	}
+
+	/**
+	 * A save that changes nothing a cycle could act on (here: only prose, the
+	 * ignored revision ID differs) must not abandon the running cycle: it keeps
+	 * running with a restarted budget instead of being dropped without its end
+	 * ever being handled (its marker and the targets held back for it would
+	 * stay until they expire).
+	 *
+	 * @covers \SDU\Hooks
+	 */
+	public function testASaveWithoutSemanticChangesKeepsTheRunningCycleAlive() {
+		global $wgSDUIgnoredProperties;
+		$wgSDUIgnoredProperties = [ '___REVID' ];
+
+		$title = Title::newFromText( 'SDULimitSaveKeepsCyclePage', NS_MAIN );
+		$text = '{{#set:SDUTestSource=One}}{{#set:Semantic Dependency={{FULLPAGENAME}}}}';
+
+		$this->editPage( $title, $text );
+		$this->advanceSelfUpdateMarker( $title, 2 );
+		$this->assertSelfUpdatePendingAttempt( 3, $title );
+
+		$this->editPage( $title, $text . "\nSome more prose." );
+
+		$this->assertSelfUpdatePendingAttempt(
+			1,
+			$title,
+			'The cycle must still be running, with its budget restarted.'
+		);
+	}
+
+	/**
+	 * @covers \SDU\Hooks
+	 */
+	public function testASaveOfAPageWithoutARunningCycleDoesNotStartOne() {
+		$title = Title::newFromText( 'SDULimitSaveNoCyclePage', NS_MAIN );
+
+		$this->editPage( $title, 'Just some prose, no dependency property at all.' );
+		$this->editPage( $title, 'Just some other prose.' );
+
+		$this->assertSelfUpdatePendingAttempt( 0, $title );
 	}
 
 	/**

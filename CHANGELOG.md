@@ -27,6 +27,9 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
   measured setup it ended a cycle too early in about 5 % of the saves
 
 ### Fixed
+- Give every save of a page the full attempt budget of a running "Update Self" cycle. Two saves in quick
+  succession used to share one budget, and the cycle was ended by the limit on a pass that still changed
+  data, before a pass had confirmed the result; the reload prompt was then missing for a moment
 - Keep the reload prompt of a save until that save's own update has decided whether a reload is needed. A
   store update of the same page in another process (for example a job of an earlier cycle finishing just
   then) could take the prompt away, so the editor was told there was nothing to wait for while the page

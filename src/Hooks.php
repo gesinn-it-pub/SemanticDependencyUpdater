@@ -352,6 +352,37 @@ class Hooks {
 		);
 	}
 
+	/**
+	 * A new save gives a running self-update cycle of the page a fresh budget.
+	 * The attempt count bounds what the cycle's own passes may cost; a save is
+	 * an event of its own (a user or a bot did it, not the cycle), so it must
+	 * not inherit what the previous save's passes used up. Two saves in quick
+	 * succession used to share one budget of SELF_UPDATE_MAX_ATTEMPTS, and the
+	 * cycle was then ended by the limit on a pass that still changed data,
+	 * before any pass had confirmed the result.
+	 *
+	 * The count goes back to 1, not to 0 or away: a cycle is "running" as long
+	 * as it has an attempt count, and dropping it here would leave the cycle's
+	 * marker and the targets held back for it without their end ever being
+	 * handled (for example when the save only changes prose). The save's own
+	 * pass then counts as the second attempt. Only a save does this, never a
+	 * pass: loops between pages are made of passes, and they must stay bound
+	 * by the budget.
+	 */
+	private static function restartSelfUpdateAttempts( string $id ): void {
+		if ( self::getSelfUpdateAttempt( $id ) <= 1 ) {
+			return;
+		}
+
+		self::getSelfUpdateMarkerCache()->set(
+			smwfCacheKey( self::SELF_UPDATE_PENDING_CACHE_NAMESPACE, $id ),
+			1,
+			self::SELF_UPDATE_PENDING_TTL_SECONDS
+		);
+
+		self::debugLog( "[SDU] new save of {$id}: attempt count of the running self-update cycle restarted" );
+	}
+
 	private const CYCLE_REQUEST_IDS_CACHE_NAMESPACE = 'sdu:cycle-request-ids';
 
 	/** More than the attempts of a cycle can ever contribute; only keeps the entry small. */
@@ -1772,6 +1803,7 @@ class Hooks {
 		}
 
 		try {
+			self::restartSelfUpdateAttempts( $wikiPage->getTitle()->getPrefixedDBKey() );
 			self::setProvisionalReloadPendingIfPageNamesItself( $wikiPage, $revisionRecord->getId() );
 		} catch ( \Throwable $e ) {
 			// This only brings the reload prompt forward; it is not worth a
