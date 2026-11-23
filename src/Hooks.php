@@ -143,7 +143,7 @@ class Hooks {
 
 				$wikiPageValues = array_merge(
 					$wikiPageValues,
-					self::updatePagesMatchingQuery( $valueItem->getSerialization() )
+					self::updatePagesMatchingQuery( $valueItem->getSerialization(), false, $title )
 				);
 			}
 		}
@@ -702,7 +702,7 @@ class Hooks {
 			if ( !( $value instanceof SMWDIBlob ) ) {
 				continue;
 			}
-			foreach ( self::updatePagesMatchingQuery( $value->getSerialization() ) as $target ) {
+			foreach ( self::updatePagesMatchingQuery( $value->getSerialization(), false, $title ) as $target ) {
 				if ( !$target->equals( $subject ) ) {
 					$targets[$target->getSerialization()] = $target;
 				}
@@ -1527,7 +1527,11 @@ class Hooks {
 					// below, not by excluding self-matches from the query here.
 					$wikiPageValues = array_merge(
 						$wikiPageValues,
-						self::updatePagesMatchingQuery( $valueItem->getSerialization() )
+						self::updatePagesMatchingQuery(
+							$valueItem->getSerialization(),
+							true,
+							$newData->getSubject()->getTitle()
+						)
 					);
 				}
 			}
@@ -1653,24 +1657,57 @@ class Hooks {
 	}
 
 	/**
-	 * @param string $queryString Query string, excluding [[ and ]] brackets
+	 * Finds the pages a dependency value points at.
+	 *
+	 * @param string $value Raw dependency value
+	 * @param bool $encoded Whether the value comes from the parse-time data of a
+	 *  save and so still holds character references (see DependencyValue)
+	 * @param Title|null $self The page the value belongs to
+	 * @return DIWikiPage[]
 	 */
-	private static function updatePagesMatchingQuery( $queryString ) {
+	private static function updatePagesMatchingQuery( $value, bool $encoded = false, ?Title $self = null ) {
 		global $wgPageFormsListSeparator;
 
-		$queryString = str_replace( 'AND', ']] [[', $queryString );
-		$queryString = str_replace( 'OR', ']] OR [[', $queryString );
-
-		// If PageForms is installed, get the separator character and change it into ||
-		// Otherwise SDU won't work with multi-value properties.
 		// $wgPageFormsListSeparator is declared by the optional PageForms extension, not SDU,
 		// so it is genuinely unset when PageForms is not installed.
 		// @phan-suppress-next-line MediaWikiNoIssetIfDefined
-		if ( isset( $wgPageFormsListSeparator ) ) {
-			$queryString = rtrim( $queryString, $wgPageFormsListSeparator );
-			$queryString = str_replace( $wgPageFormsListSeparator, ' || ', $queryString );
+		$separator = isset( $wgPageFormsListSeparator ) ? $wgPageFormsListSeparator : null;
+
+		// A value that as a whole names one page is never split: the page's
+		// name may itself contain the separator or an operator word. This
+		// rests on the page existing (or being the page saved), so it is a
+		// heuristic with a known limit, see DependencyValue::namesOnePage().
+		$whole = trim( DependencyValue::decode( $value, $encoded ) );
+
+		if ( DependencyValue::namesOnePage( $whole, $self ) ) {
+			$pieces = [ $whole ];
+		} else {
+			$pieces = DependencyValue::split( $value, $separator, $encoded );
 		}
 
+		if ( $pieces !== [ $value ] ) {
+			self::debugLog(
+				"[SDU] Dependency value normalised: " . $value . " -> " . json_encode( $pieces, JSON_UNESCAPED_UNICODE )
+			);
+		}
+
+		if ( count( $pieces ) === 1 && DependencyValue::namesOnePage( $pieces[0], $self ) ) {
+			return self::queryPages( $pieces[0] );
+		}
+
+		// The separator stands for "or" between values, also behind a
+		// "Property::" (Property::A;B lists values of one property), so the
+		// pieces stay one condition.
+		return self::queryPages(
+			DependencyValue::toCondition( implode( ' || ', $pieces ), false )
+		);
+	}
+
+	/**
+	 * @param string $queryString Query string, excluding [[ and ]] brackets
+	 * @return DIWikiPage[]
+	 */
+	private static function queryPages( string $queryString ) {
 		self::debugLog( "[SDU] --------> [[$queryString]]" );
 
 		$store = smwfGetStore();
@@ -1844,17 +1881,34 @@ class Hooks {
 	 *  alternative of an "OR" / "||" union
 	 */
 	private static function dependencyValueNamesPage( string $value, PageIdentity $page ): bool {
-		foreach ( preg_split( '/\s+OR\s+|\s*\|\|\s*/', $value ) as $alternative ) {
-			$alternative = trim( $alternative );
+		global $wgPageFormsListSeparator;
 
-			if ( strncmp( $alternative, '[[', 2 ) === 0 && substr( $alternative, -2 ) === ']]' ) {
-				$alternative = substr( $alternative, 2, -2 );
-			}
+		// $wgPageFormsListSeparator is declared by the optional PageForms extension, not SDU.
+		// @phan-suppress-next-line MediaWikiNoIssetIfDefined
+		$separator = isset( $wgPageFormsListSeparator ) ? $wgPageFormsListSeparator : null;
 
-			$candidate = Title::newFromText( $alternative );
+		// the value comes from the parse-time data of a save, so it still
+		// holds character references
+		$whole = trim( DependencyValue::decode( $value, true ) );
+		$candidate = DependencyValue::titleFromText( $whole );
 
-			if ( $candidate !== null && $candidate->equals( $page ) ) {
-				return true;
+		if ( $candidate !== null && $candidate->equals( $page ) ) {
+			return true;
+		}
+
+		foreach ( DependencyValue::split( $value, $separator, true ) as $piece ) {
+			foreach ( preg_split( '/\s+OR\s+|\s*\|\|\s*/', $piece ) as $alternative ) {
+				$alternative = trim( $alternative );
+
+				if ( strncmp( $alternative, '[[', 2 ) === 0 && substr( $alternative, -2 ) === ']]' ) {
+					$alternative = substr( $alternative, 2, -2 );
+				}
+
+				$candidate = DependencyValue::titleFromText( $alternative );
+
+				if ( $candidate !== null && $candidate->equals( $page ) ) {
+					return true;
+				}
 			}
 		}
 
