@@ -21,6 +21,15 @@ class DependencyValueTest extends MediaWikiIntegrationTestCase {
 		yield 'stored value is not decoded' => [ 'A &#38; B', null, false, [ 'A &#38; B' ] ];
 		yield 'stored raw values split' => [ "A'B;C & D", ';', false, [ "A'B", 'C & D' ] ];
 		yield 'no separator configured' => [ 'A;B', null, true, [ 'A;B' ] ];
+		yield 'raw ampersand in both values' => [ 'A&B;C&D', ';', true, [ 'A&B', 'C&D' ] ];
+		yield 'raw ampersand before the separator' => [ 'A &x;B', ';', true, [ 'A &x', 'B' ] ];
+		yield 'bare ampersand before the separator' => [ 'A &;B', ';', true, [ 'A &', 'B' ] ];
+		yield 'ampersand at the start of a value' => [ '&A;B', ';', true, [ '&A', 'B' ] ];
+		yield 'ampersand at the end of a value' => [ 'A&;B&', ';', true, [ 'A&', 'B&' ] ];
+		yield 'valid named entity then separator' => [ 'A &amp;;B', ';', true, [ 'A &', 'B' ] ];
+		yield 'lt entity then separator' => [ '&lt;;x', ';', true, [ '<', 'x' ] ];
+		yield 'numeric entity then separator' => [ '&#38;;x', ';', true, [ '&', 'x' ] ];
+		yield 'hex entity then separator' => [ '&#x26;;x', ';', true, [ '&', 'x' ] ];
 		yield 'empty pieces dropped' => [ 'A;;B; ', ';', true, [ 'A', 'B' ] ];
 	}
 

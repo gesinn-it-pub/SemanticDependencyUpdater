@@ -271,4 +271,38 @@ class SpecialCharacterTitleIntegrationTest extends SduIntegrationTestCase {
 		$this->assertNotContains( $partA->getPrefixedDBKey(), $queued );
 		$this->assertNotContains( $partB->getPrefixedDBKey(), $queued );
 	}
+
+	public static function provideTypedPropertyListValues(): iterable {
+		yield 'ampersand in both names' => [ 'SDUTyped T1 A&B', 'SDUTyped T2 A&B' ];
+		yield 'ampersand in one name' => [ 'SDUTyped T1 A&B', 'SDUTyped T2 AxB' ];
+		yield 'spaced ampersand' => [ 'SDUTyped T1 A & B', 'SDUTyped T2 C & D' ];
+		yield 'ampersand at the end' => [ 'SDUTyped T1 A&', 'SDUTyped T2 B&' ];
+	}
+
+	/**
+	 * The same list typed by hand, so the raw "&" reaches SDU as written and
+	 * not as a character reference.
+	 *
+	 * @dataProvider provideTypedPropertyListValues
+	 * @covers \SDU\Hooks
+	 */
+	public function testTypedPropertyListWithRawAmpersandMatchesEveryValue( string $first, string $second ) {
+		$dependent1 = Title::newFromText( 'SDUTypedDependent1 ' . md5( $first . $second ) );
+		$dependent2 = Title::newFromText( 'SDUTypedDependent2 ' . md5( $first . $second ) );
+		$source = Title::newFromText( 'SDUTypedSource ' . md5( $first . $second ) );
+
+		$this->editPage( $dependent1, '{{#set:SDUPropListRef=' . $first . '}}' );
+		$this->editPage( $dependent2, '{{#set:SDUPropListRef=' . $second . '}}' );
+		$this->runAllJobsWithFreshCaches();
+
+		$this->editPage(
+			$source,
+			'{{#set:SDUTestSource=1}}{{#set:Semantic Dependency=SDUPropListRef::' . $first . ';' . $second . '}}'
+		);
+
+		$queued = $this->getQueuedUpdateJobTitles();
+
+		$this->assertContains( $dependent1->getPrefixedDBKey(), $queued );
+		$this->assertContains( $dependent2->getPrefixedDBKey(), $queued );
+	}
 }

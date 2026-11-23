@@ -20,7 +20,8 @@ class DependencyValue {
 
 	/**
 	 * Replaces the ";" that ends a character reference, so a separator split
-	 * does not cut inside it.
+	 * does not cut inside it. Only a valid reference counts: "&B;" or "&x;"
+	 * in a typed name is text, and its ";" separates.
 	 */
 	private const MASK = "\x1A";
 
@@ -48,7 +49,9 @@ class DependencyValue {
 			if ( $encoded ) {
 				$value = preg_replace_callback(
 					'/&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/',
-					static fn ( array $m ) => str_replace( ';', self::MASK, $m[0] ),
+					static fn ( array $m ) => Sanitizer::decodeCharReferences( $m[0] ) !== $m[0]
+						? str_replace( ';', self::MASK, $m[0] )
+						: $m[0],
 					$value
 				);
 			}
