@@ -6,10 +6,18 @@ This project adheres to [Semantic Versioning](https://semver.org/) and
 
 ## [Unreleased]
 
+## [5.2.1] - 2026-11-23
+
+Makes dependencies on pages with special characters in their names work, such as `&` in "Finanzen & Controlling".
+
+### Changed
+- Describe page names with special characters, and the remaining limitation for ` OR ` / ` AND ` and `;` in names, in the README [`d0ded51`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/d0ded51)
+- State that ` OR ` / ` AND ` in a property condition (`Property::A OR B`) is always an operator, also for an existing page [`73640fc`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/73640fc)
+
 ### Fixed
-- Find pages whose name contains `&`, `'`, `"`, `=` or `;` when they are named in the dependency property, for example through `{{FULLPAGENAME}}`. The character references that `{{FULLPAGENAME}}` writes for these characters (such as `&#38;`) were cut at their own `;` or not decoded, so the query matched no page and no "Update Self" cycle ran
-- Do not split page names that contain `AND` or `OR` as part of a word (such as `ORDER`, `BRAND`) or as a separate word when the page exists, into query operators
-- Keep a "Property::Value1;Value2" list working with the list separator, also with these characters in the names
+- Find pages whose name contains `&`, `'`, `"`, `=` or `;` when they are named in the dependency property, for example through `{{FULLPAGENAME}}`. Until now the query matched no page for these names, so no "Update Self" cycle ran and dependent pages were not updated [`bbe8803`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/bbe8803)
+- Do not read `AND` or `OR` inside a page name (such as `ORDER`, `BRAND`) as a query operator [`bbe8803`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/bbe8803)
+- Keep a list of values with the list separator working when a name contains a typed `&` (`A&B;C&D`) [`df4b765`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/df4b765)
 
 ### Known limitations
 - A page that does not exist yet and is not the page being saved is read as a list of values when its name contains ` OR ` or ` AND ` as a separate word (also a raw `;`, as typed or read from the store). A dependency naming it does not update that page: with ` OR ` it updates the pages named by its parts, with ` AND ` the result is whatever the conjunction query returns. Avoid ` OR `, ` AND ` and `;` in page names. In a property condition (`Property::A OR B`) ` OR ` / ` AND ` is always an operator, also for an existing page. See "Page names with special characters" in the README
@@ -159,7 +167,8 @@ deletion-triggered dependency rebuilds, which were never actually wired up.
 - Replace PHPStan/Psalm with Phan for static analysis
   [`c4868d1`](https://github.com/gesinn-it-pub/SemanticDependencyUpdater/commit/c4868d1)
 
-[Unreleased]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.2.0...HEAD
+[Unreleased]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.2.1...HEAD
+[5.2.1]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.2.0...5.2.1
 [5.2.0]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.2...5.2.0
 [5.1.2]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.1...5.1.2
 [5.1.1]: https://github.com/gesinn-it-pub/SemanticDependencyUpdater/compare/5.1.0...5.1.1
